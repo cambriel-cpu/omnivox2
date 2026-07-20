@@ -8,17 +8,28 @@ from omnivox_protocol import (
     AudioFrame,
     CancelReason,
     CancelRequest,
+    ErrorMessage,
+    GatewayMessage,
     Hello,
+    Ping,
+    Pong,
     ProtocolLimits,
     UtteranceEnd,
     UtteranceStart,
     Wake,
     Welcome,
     WireRequest,
+    decode_heartbeat,
     decode_welcome,
     encode_audio_frame,
     encode_client_message,
+    encode_heartbeat,
     encode_hello,
+)
+
+from omnivox_skull_simulator.response import (
+    GatewayResponseSession,
+    GatewayResponseState,
 )
 
 
@@ -30,6 +41,8 @@ class SimulatorState(StrEnum):
     IDLE = "idle"
     LISTENING = "listening"
     THINKING = "thinking"
+    SPEAKING = "speaking"
+    UNAVAILABLE = "unavailable"
 
 
 class SimulatorStateError(RuntimeError):
@@ -59,6 +72,7 @@ class SkullSimulator:
         self._audio_sequence = 0
         self._capturing = False
         self._audio_complete = False
+        self._response: GatewayResponseSession | None = None
 
     @property
     def state(self) -> SimulatorState:
@@ -100,6 +114,11 @@ class SkullSimulator:
         self._audio_sequence = 0
         self._capturing = False
         self._audio_complete = False
+        self._response = GatewayResponseSession(
+            conversation_id=conversation_id,
+            request_id=request_id,
+            limits=self._welcome.limits,
+        )
         frame = encode_client_message(Wake(self._wire_request()))
         self._control_sequence += 1
         self._state = SimulatorState.LISTENING
@@ -159,15 +178,57 @@ class SkullSimulator:
 
     def cancel(self, reason: CancelReason) -> bytes:
         """Emit cancellation for a live request and return to idle."""
-        if self._state not in {SimulatorState.LISTENING, SimulatorState.THINKING}:
-            message = "cancel requires listening or thinking state"
+        if self._state not in {
+            SimulatorState.LISTENING,
+            SimulatorState.THINKING,
+            SimulatorState.SPEAKING,
+        }:
+            message = "cancel requires a live request"
             raise SimulatorStateError(message)
         frame = encode_client_message(CancelRequest(self._wire_request(), reason))
         self._control_sequence += 1
         self._capturing = False
         self._audio_complete = False
+        self._response = None
         self._state = SimulatorState.IDLE
         return frame
+
+    def receive_gateway_control(self, frame: bytes) -> GatewayMessage:
+        """Consume one correlated gateway response control frame."""
+        response = self._active_response()
+        message = response.receive_control(frame)
+        if response.state is GatewayResponseState.SPEAKING:
+            self._state = SimulatorState.SPEAKING
+        elif response.state is GatewayResponseState.COMPLETE:
+            self._clear_request()
+            self._state = SimulatorState.IDLE
+        return message
+
+    def receive_gateway_audio(self, frame: bytes) -> AudioFrame:
+        """Consume one ordered gateway audio frame."""
+        self._require_state(SimulatorState.SPEAKING)
+        return self._active_response().receive_audio(frame)
+
+    def receive_gateway_error(self, frame: bytes) -> ErrorMessage:
+        """Consume one correlated terminal gateway error."""
+        error = self._active_response().receive_error(frame)
+        self._clear_request()
+        self._state = SimulatorState.UNAVAILABLE
+        return error
+
+    def reply_to_heartbeat(self, frame: bytes) -> bytes:
+        """Return a pong carrying an established session's exact ping nonce."""
+        if self._welcome is None:
+            message = "heartbeat requires an established device session"
+            raise SimulatorStateError(message)
+        heartbeat = decode_heartbeat(
+            frame,
+            max_frame_bytes=self._welcome.limits.max_control_frame_bytes,
+        )
+        if not isinstance(heartbeat, Ping):
+            message = "heartbeat reply requires a ping"
+            raise SimulatorStateError(message)
+        return encode_heartbeat(Pong(nonce=heartbeat.nonce))
 
     def disconnect(self) -> None:
         """Drop the session and all request state without a resume token."""
@@ -178,7 +239,26 @@ class SkullSimulator:
         self._audio_sequence = 0
         self._capturing = False
         self._audio_complete = False
+        self._response = None
         self._state = SimulatorState.DISCONNECTED
+
+    def _active_response(self) -> GatewayResponseSession:
+        if (
+            self._state not in {SimulatorState.THINKING, SimulatorState.SPEAKING}
+            or self._response is None
+        ):
+            message = "gateway output requires an active response"
+            raise SimulatorStateError(message)
+        return self._response
+
+    def _clear_request(self) -> None:
+        self._conversation_id = None
+        self._request_id = None
+        self._control_sequence = 0
+        self._audio_sequence = 0
+        self._capturing = False
+        self._audio_complete = False
+        self._response = None
 
     def _wire_request(self) -> WireRequest:
         if self._conversation_id is None or self._request_id is None:
