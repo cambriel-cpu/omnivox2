@@ -95,6 +95,13 @@ Production benchmarks use a monotonic clock. Tests inject a manual clock and mus
 not sleep. Reports preserve case input order regardless of future execution
 parallelism.
 
+Transport fault scenarios use an in-process deterministic link. A test configures
+the zero-based frame indexes to drop; transmission then returns no frame at those
+indexes and forwards every other frame byte-for-byte. Dropped frames are not
+renumbered or retried by the link, allowing the real protocol state machines to
+detect the resulting sequence gap. The link records only frame indexes and byte
+counts, never payload content, and introduces no sleeps or wall-clock dependence.
+
 ## 6. Provider and hardware policy
 
 - Fake-provider suites run by default.
