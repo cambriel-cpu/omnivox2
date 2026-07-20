@@ -167,6 +167,11 @@ class OmniSession(Protocol):
 
 Adapters translate provider-specific errors into the common error model. The coordinator decides whether a fallback is allowed.
 
+TTS fallback is allowed only for a retryable failure before the first audio chunk
+is emitted. Buffered response segments may be replayed once to the configured
+fallback. Failure after audio begins is terminal to prevent duplicate speech, and
+cancellation always suppresses fallback.
+
 ## 5. Protocol
 
 ### 5.1 Connection handshake

@@ -30,6 +30,8 @@ All notable changes to Omni Vox 2 will be documented here.
 - Privacy and percentile semantics for batch evaluation reports.
 - Ordered batch evaluation with outcome totals, nearest-rank latency percentiles,
   case/request correlation, and content-free machine records.
+- Controlled TTS fallback semantics that prevent cancellation fallback, loops, and
+  duplicate speech after primary audio begins.
 
 ### Changed
 

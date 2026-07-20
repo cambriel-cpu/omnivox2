@@ -39,6 +39,17 @@ has local access to the device.
 - Cover success, provider failure, fallback limits, cancellation, and stale output
   with tests written before implementation.
 
+TTS fallback policy is deliberately narrow:
+
+- A fallback is attempted only for a normalized retryable provider failure.
+- The failure must occur before any primary audio chunk has been emitted.
+- Text already consumed by the primary adapter is replayed once to the fallback;
+  remaining OpenClaw text continues through the same bounded request.
+- Once primary audio is emitted, later failure is terminal so spoken content is not
+  duplicated.
+- Cancellation prevents fallback, and fallback failure is terminal. A request can
+  never enter a fallback loop.
+
 ### Increment 2: Versioned protocol and skull simulator
 
 - Specify control-message schemas and negotiated limits before runtime code.
