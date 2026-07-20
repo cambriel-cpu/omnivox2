@@ -34,7 +34,12 @@ All notable changes to Omni Vox 2 will be documented here.
   duplicate speech after primary audio begins.
 - Initial pipeline deadline, active-request, replay-text, response-size, and audio
   chunk limits with pull-driven backpressure semantics.
+- Versioned private accuracy and recovery annotations with content-free WER,
+  proper-noun, recovery, and request-cost aggregates.
 
 ### Changed
 
 - Marked the product and architecture decisions approved for implementation.
+- Hardened evaluation reports with cross-request correlation checks, strict
+  numeric validation, bounded accuracy work, and latency-only evaluator
+  compatibility.
