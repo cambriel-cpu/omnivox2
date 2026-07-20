@@ -23,9 +23,10 @@ has been imported.
 - Voice-model landscape researched.
 - Initial Python workspace, shared protocol models, and provider-neutral gateway
   pipeline implemented on a feature branch.
-- Hardware-independent evaluation metrics plus an in-process skull/gateway
-  simulator cover handshake, request control, audio ordering, cancellation, and
-  reconnect isolation; network transport and provider scenarios remain in progress.
+- Content-free latency, accuracy, recovery, and cost reports plus an in-process
+  skull/gateway simulator cover handshake, request control, audio ordering,
+  cancellation, and reconnect isolation; real-provider benchmarks and physical
+  acceptance remain pending.
 - Legacy code remains in the original repositories and deployments for selective salvage.
 
 ## Product direction

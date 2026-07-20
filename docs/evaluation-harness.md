@@ -1,6 +1,6 @@
 # Omni Vox 2 — Evaluation Harness
 
-Status: Initial implementation baseline
+Status: Hardware-independent Increment 3 baseline complete
 
 ## 1. Purpose
 
