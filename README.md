@@ -12,9 +12,10 @@ has been imported.
 1. Read [`docs/product-spec.md`](docs/product-spec.md).
 2. Read [`docs/architecture-spec.md`](docs/architecture-spec.md).
 3. Read [`docs/protocol-v2.md`](docs/protocol-v2.md) before transport work.
-4. Read [`docs/research/model-selection.md`](docs/research/model-selection.md).
-5. Read [`docs/legacy/salvage-guide.md`](docs/legacy/salvage-guide.md) before consulting the prototype.
-6. Create a dedicated Git worktree and branch before any write-heavy task.
+4. Read [`docs/evaluation-harness.md`](docs/evaluation-harness.md) before provider benchmarks.
+5. Read [`docs/research/model-selection.md`](docs/research/model-selection.md).
+6. Read [`docs/legacy/salvage-guide.md`](docs/legacy/salvage-guide.md) before consulting the prototype.
+7. Create a dedicated Git worktree and branch before any write-heavy task.
 
 ## Current status
 

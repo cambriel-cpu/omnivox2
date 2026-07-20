@@ -27,6 +27,7 @@ All notable changes to Omni Vox 2 will be documented here.
   the simulator lifecycle.
 - In-process gateway device-session validation for authenticated identity, request
   ordering, cancellation, completion, disconnect, and reconnect isolation.
+- Privacy and percentile semantics for batch evaluation reports.
 
 ### Changed
 
