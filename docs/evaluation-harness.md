@@ -105,8 +105,9 @@ counts, never payload content, and introduces no sleeps or wall-clock dependence
 ## 6. Provider and hardware policy
 
 - Fake-provider suites run by default.
-- Real-provider suites require explicit opt-in, approved credentials, and billing
-  controls.
+- Real-provider tests carry the `real_provider` pytest marker and are skipped by
+  default. They run only when `pytest --run-real-provider` is supplied explicitly,
+  after credentials and billing controls are approved.
 - Provider comparisons use the same fixture manifest and decision rule.
 - Physical wake, capture, playback, acoustic barge-in, and reboot evidence remains
   separately recorded and pending while the Pi is inaccessible.
