@@ -18,6 +18,7 @@ All notable changes to Omni Vox 2 will be documented here.
   rejection.
 - Deterministic, privacy-safe evaluation reports for pipeline latency, provider
   selection, and terminal outcomes.
+- Exact device protocol v2 control and binary wire specification.
 
 ### Changed
 

@@ -1,7 +1,7 @@
 # Omni Vox v2 — Architecture Specification
 
 Status: Approved for implementation (2026-07-20)
-Companion document: `product-spec.md`
+Companion documents: `product-spec.md`, `protocol-v2.md`
 
 ## 1. Architectural goal
 

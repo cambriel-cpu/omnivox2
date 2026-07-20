@@ -11,9 +11,10 @@ has been imported.
 
 1. Read [`docs/product-spec.md`](docs/product-spec.md).
 2. Read [`docs/architecture-spec.md`](docs/architecture-spec.md).
-3. Read [`docs/research/model-selection.md`](docs/research/model-selection.md).
-4. Read [`docs/legacy/salvage-guide.md`](docs/legacy/salvage-guide.md) before consulting the prototype.
-5. Create a dedicated Git worktree and branch before any write-heavy task.
+3. Read [`docs/protocol-v2.md`](docs/protocol-v2.md) before transport work.
+4. Read [`docs/research/model-selection.md`](docs/research/model-selection.md).
+5. Read [`docs/legacy/salvage-guide.md`](docs/legacy/salvage-guide.md) before consulting the prototype.
+6. Create a dedicated Git worktree and branch before any write-heavy task.
 
 ## Current status
 
