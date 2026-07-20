@@ -10,7 +10,12 @@ from omnivox_protocol import (
     ProtocolViolation,
     encode_audio_frame,
 )
-from omnivox_skull_simulator import SimulatorState, SkullSimulator
+from omnivox_skull_simulator import (
+    DeterministicLink,
+    FrameDelivery,
+    SimulatorState,
+    SkullSimulator,
+)
 
 DEVICE_ID = "servo-skull-primary"
 CONVERSATION_ID = UUID("00000000-0000-4000-8000-000000000002")
@@ -146,3 +151,32 @@ def test_gateway_binds_hello_to_authenticated_device() -> None:
         gateway().accept_hello(other_skull.connect())
 
     assert raised.value.code == "AUTHENTICATION_FAILED"
+
+
+def test_deterministic_packet_loss_exposes_audio_sequence_gap() -> None:
+    skull_client = skull()
+    session = gateway()
+    connect(skull_client, session)
+    session.receive_control(skull_client.wake(CONVERSATION_ID, REQUEST_ID))
+    session.receive_control(skull_client.begin_utterance())
+    first = skull_client.audio(b"dropped")
+    second = skull_client.audio(b"delivered")
+    link = DeterministicLink(drop_frame_indexes=(0,))
+
+    assert link.transmit(first) is None
+    delivered = link.transmit(second)
+    assert delivered == second
+    assert delivered is not None
+    with pytest.raises(ProtocolViolation, match="sequence") as raised:
+        session.receive_audio(delivered)
+
+    assert raised.value.code == "INVALID_MESSAGE"
+    assert link.deliveries == (
+        FrameDelivery(index=0, byte_count=len(first), dropped=True),
+        FrameDelivery(index=1, byte_count=len(second), dropped=False),
+    )
+
+
+def test_deterministic_link_rejects_invalid_drop_plan() -> None:
+    with pytest.raises(ValueError, match="indexes"):
+        DeterministicLink(drop_frame_indexes=(-1,))

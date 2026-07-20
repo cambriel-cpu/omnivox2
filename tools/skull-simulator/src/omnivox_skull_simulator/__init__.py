@@ -5,5 +5,12 @@ from omnivox_skull_simulator.simulator import (
     SimulatorStateError,
     SkullSimulator,
 )
+from omnivox_skull_simulator.transport import DeterministicLink, FrameDelivery
 
-__all__ = ["SimulatorState", "SimulatorStateError", "SkullSimulator"]
+__all__ = [
+    "DeterministicLink",
+    "FrameDelivery",
+    "SimulatorState",
+    "SimulatorStateError",
+    "SkullSimulator",
+]
