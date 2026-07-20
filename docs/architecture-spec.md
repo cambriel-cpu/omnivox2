@@ -287,6 +287,24 @@ User-facing messages never contain stack traces, internal URLs, request bodies, 
 
 All network calls have explicit connect, read, write, and total deadlines. Initial values are configuration with safe bounds.
 
+The hardware-independent pipeline starts with these conservative coordinator
+defaults, which remain typed configuration rather than provider constants:
+
+| Setting | Initial value | Scope |
+| --- | ---: | --- |
+| STT attempt deadline | 10 seconds | Each primary or fallback transcription attempt. |
+| OpenClaw segment deadline | 30 seconds | Each next streamed text segment. |
+| TTS chunk deadline | 10 seconds | Each next streamed audio chunk. |
+| Active pipeline requests | 32 | One configured gateway pipeline instance. |
+| Replay text segments | 128 | One request, including TTS fallback replay. |
+| Response characters | 16,000 | One request across all text segments. |
+| Synthesized audio chunks | 512 | One request across primary and fallback. |
+
+Timeouts normalize to `STT_TIMEOUT`, `OPENCLAW_TIMEOUT`, or `TTS_TIMEOUT`.
+STT and pre-audio TTS timeouts may use the single configured fallback; OpenClaw
+timeouts and post-audio TTS timeouts are terminal. Limit violations are
+non-retryable and never invoke fallback.
+
 Required limits:
 
 - Maximum control-frame size.
@@ -298,6 +316,11 @@ Required limits:
 - Maximum response characters and spoken duration.
 
 When consumers fall behind, the system cancels or drops the affected request; it never permits unbounded queue growth.
+
+The in-process pipeline is pull-driven: providers cannot advance past downstream
+consumption. Its only replay buffer is bounded by the text segment and character
+limits above. Later network queues must retain the same bounds rather than adding
+unbounded buffering.
 
 ## 10. Health and observability
 

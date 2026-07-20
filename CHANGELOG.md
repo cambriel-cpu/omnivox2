@@ -32,6 +32,8 @@ All notable changes to Omni Vox 2 will be documented here.
   case/request correlation, and content-free machine records.
 - Controlled TTS fallback semantics that prevent cancellation fallback, loops, and
   duplicate speech after primary audio begins.
+- Initial pipeline deadline, active-request, replay-text, response-size, and audio
+  chunk limits with pull-driven backpressure semantics.
 
 ### Changed
 

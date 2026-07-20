@@ -50,6 +50,11 @@ TTS fallback policy is deliberately narrow:
 - Cancellation prevents fallback, and fallback failure is terminal. A request can
   never enter a fallback loop.
 
+Pipeline deadline tests inject a deterministic deadline runner and never sleep.
+Production uses asyncio monotonic deadlines. Replay text, response characters,
+audio chunks, and active requests are explicitly bounded; exceeding a bound is a
+non-retryable request failure.
+
 ### Increment 2: Versioned protocol and skull simulator
 
 - Specify control-message schemas and negotiated limits before runtime code.
