@@ -25,6 +25,8 @@ All notable changes to Omni Vox 2 will be documented here.
   handshake, state, and sequenced audio lifecycles.
 - Strict request-scoped wake, utterance, and cancel control codecs integrated into
   the simulator lifecycle.
+- In-process gateway device-session validation for authenticated identity, request
+  ordering, cancellation, completion, disconnect, and reconnect isolation.
 
 ### Changed
 

@@ -169,6 +169,17 @@ class SkullSimulator:
         self._state = SimulatorState.IDLE
         return frame
 
+    def disconnect(self) -> None:
+        """Drop the session and all request state without a resume token."""
+        self._welcome = None
+        self._conversation_id = None
+        self._request_id = None
+        self._control_sequence = 0
+        self._audio_sequence = 0
+        self._capturing = False
+        self._audio_complete = False
+        self._state = SimulatorState.DISCONNECTED
+
     def _wire_request(self) -> WireRequest:
         if self._conversation_id is None or self._request_id is None:
             message = "active request identifiers are missing"
