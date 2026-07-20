@@ -1,0 +1,16 @@
+[project]
+name = "omnivox-gateway"
+version = "0.1.0"
+description = "Provider-neutral Omni Vox 2 gateway"
+requires-python = ">=3.12,<3.13"
+dependencies = ["omnivox-protocol"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+omnivox-protocol = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omnivox_gateway"]

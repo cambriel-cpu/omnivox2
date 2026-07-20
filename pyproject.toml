@@ -1,0 +1,55 @@
+[project]
+name = "omnivox-development"
+version = "0.1.0"
+description = "Development workspace for Omni Vox 2"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "omnivox-gateway",
+    "omnivox-protocol",
+]
+
+[dependency-groups]
+dev = [
+    "detect-secrets>=1.5,<2",
+    "mypy>=1.17,<2",
+    "pip-audit>=2.9,<3",
+    "pytest>=9.0.3,<10",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
+omnivox-gateway = { workspace = true }
+omnivox-protocol = { workspace = true }
+
+[tool.uv.workspace]
+members = ["packages/*"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812",
+    "D203",
+    "D213",
+    "D105",
+    "D107",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true

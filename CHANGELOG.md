@@ -11,3 +11,10 @@ All notable changes to Omni Vox 2 will be documented here.
 - Initial voice model and deployment strategy research.
 - Legacy archaeology and selective salvage guide.
 - Repository-wide agent workflow and quality gates.
+- Initial hardware-independent implementation plan.
+- Python workspace with shared protocol models and a provider-neutral streaming
+  gateway foundation.
+
+### Changed
+
+- Marked the product and architecture decisions approved for implementation.

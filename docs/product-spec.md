@@ -1,6 +1,6 @@
 # Omni Vox v2 — Product Specification
 
-Status: Draft for decision
+Status: Approved for implementation (2026-07-20)
 Owner: Chris Langston
 Primary device: Servo-skull (Raspberry Pi 5)
 
@@ -238,9 +238,9 @@ MVP is complete only when:
 
 - Barge-in tuning, latency optimization, better acoustic processing, and optional clients.
 
-## 11. Product decisions requested
+## 11. Approved product decisions
 
-The draft assumes:
+Chris approved the following product decisions on 2026-07-20:
 
 1. The servo-skull is the sole MVP client; the PWA is deferred.
 2. OpenClaw is the sole memory and personality authority.
@@ -249,4 +249,4 @@ The draft assumes:
 5. The initial product recognizes Chris only; household identity is deferred.
 6. Sonos is not part of the core voice loop.
 
-These decisions should be confirmed before implementation planning.
+Changes to these decisions require a documented architecture or product decision.

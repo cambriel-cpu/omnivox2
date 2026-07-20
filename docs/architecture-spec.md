@@ -1,6 +1,6 @@
 # Omni Vox v2 — Architecture Specification
 
-Status: Draft for decision
+Status: Approved for implementation (2026-07-20)
 Companion document: `product-spec.md`
 
 ## 1. Architectural goal
@@ -436,9 +436,9 @@ No production release may proceed unless:
 - Physical-device acceptance and recovery tests pass.
 - The deployed commit and configuration version are verified after installation.
 
-## 16. Architectural decisions requested
+## 16. Approved architectural decisions
 
-This draft recommends:
+Chris approved the following architectural decisions on 2026-07-20:
 
 1. A Python asyncio client and gateway to maximize safe reuse of validated hardware work.
 2. A monorepo with a shared versioned protocol package.
@@ -449,4 +449,4 @@ This draft recommends:
 7. One primary STT/TTS path plus at most one controlled fallback each.
 8. A simulator and recorded fixtures before physical-hardware development.
 
-These decisions should be accepted or revised before an implementation plan is written.
+Changes to these decisions require a documented architecture decision.
