@@ -29,6 +29,12 @@ from omnivox_protocol.models import (
     Transcript,
     TranscriptReady,
 )
+from omnivox_protocol.welcome import (
+    ProtocolLimits,
+    Welcome,
+    decode_welcome,
+    encode_welcome,
+)
 
 __all__ = [
     "AUDIO_HEADER_BYTES",
@@ -43,6 +49,7 @@ __all__ = [
     "Completed",
     "Hello",
     "PipelineEvent",
+    "ProtocolLimits",
     "ProtocolViolation",
     "RequestContext",
     "ResponseText",
@@ -50,8 +57,11 @@ __all__ = [
     "TextSegment",
     "Transcript",
     "TranscriptReady",
+    "Welcome",
     "decode_audio_frame",
     "decode_hello",
+    "decode_welcome",
     "encode_audio_frame",
     "encode_hello",
+    "encode_welcome",
 ]

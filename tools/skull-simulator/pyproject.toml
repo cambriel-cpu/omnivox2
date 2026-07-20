@@ -1,0 +1,16 @@
+[project]
+name = "omnivox-skull-simulator"
+version = "0.1.0"
+description = "Hardware-independent Omni Vox 2 skull simulator"
+requires-python = ">=3.12,<3.13"
+dependencies = ["omnivox-protocol"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+omnivox-protocol = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omnivox_skull_simulator"]

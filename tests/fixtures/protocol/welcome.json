@@ -1,0 +1,1 @@
+{"capabilities":["barge-in","opus-input","opus-output"],"heartbeat_interval_ms":15000,"limits":{"max_binary_frame_bytes":65536,"max_control_frame_bytes":16384,"max_queue_depth":32,"max_utterance_ms":30000},"protocol_version":2,"session_id":"00000000-0000-4000-8000-000000000001","type":"welcome"}

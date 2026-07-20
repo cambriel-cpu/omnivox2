@@ -22,7 +22,8 @@ has been imported.
 - Voice-model landscape researched.
 - Initial Python workspace, shared protocol models, and provider-neutral gateway
   pipeline implemented on a feature branch.
-- Evaluation harness and skull simulator implementation in progress.
+- Hardware-independent evaluation metrics and the initial skull handshake/audio
+  simulator implemented; request control and failure scenarios remain in progress.
 - Legacy code remains in the original repositories and deployments for selective salvage.
 
 ## Product direction
@@ -44,7 +45,7 @@ uv sync --all-packages
 uv run pytest
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy packages tests
+uv run mypy packages tools tests
 uv run pip-audit
 ```
 

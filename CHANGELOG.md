@@ -21,6 +21,8 @@ All notable changes to Omni Vox 2 will be documented here.
 - Exact device protocol v2 control and binary wire specification.
 - Strict canonical hello and binary Opus codecs backed by golden fixtures and
   fail-closed validation tests.
+- Canonical welcome negotiation and a hardware-independent skull simulator for
+  handshake, state, and sequenced audio lifecycles.
 
 ### Changed
 

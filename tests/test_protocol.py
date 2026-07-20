@@ -9,11 +9,15 @@ from omnivox_protocol import (
     AudioCodec,
     AudioFrame,
     Hello,
+    ProtocolLimits,
     ProtocolViolation,
+    Welcome,
     decode_audio_frame,
     decode_hello,
+    decode_welcome,
     encode_audio_frame,
     encode_hello,
+    encode_welcome,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "protocol"
@@ -75,6 +79,46 @@ def test_hello_size_limit_is_checked_before_json_parsing() -> None:
         decode_hello(oversized)
 
     assert raised.value.code == "PAYLOAD_TOO_LARGE"
+
+
+def test_welcome_encoding_matches_canonical_golden_fixture() -> None:
+    welcome = Welcome(
+        session_id=UUID("00000000-0000-4000-8000-000000000001"),
+        capabilities=("opus-output", "barge-in", "opus-input"),
+        heartbeat_interval_ms=15_000,
+        limits=ProtocolLimits(
+            max_binary_frame_bytes=65_536,
+            max_control_frame_bytes=16_384,
+            max_queue_depth=32,
+            max_utterance_ms=30_000,
+        ),
+    )
+    expected = (FIXTURES / "welcome.json").read_bytes().rstrip(b"\n")
+
+    assert encode_welcome(welcome) == expected
+    assert decode_welcome(expected) == Welcome(
+        session_id=welcome.session_id,
+        capabilities=("barge-in", "opus-input", "opus-output"),
+        heartbeat_interval_ms=welcome.heartbeat_interval_ms,
+        limits=welcome.limits,
+    )
+
+
+def test_welcome_rejects_invalid_capability_identifier() -> None:
+    welcome = Welcome(
+        session_id=UUID("00000000-0000-4000-8000-000000000001"),
+        capabilities=("-invalid",),
+        heartbeat_interval_ms=15_000,
+        limits=ProtocolLimits(
+            max_binary_frame_bytes=65_536,
+            max_control_frame_bytes=16_384,
+            max_queue_depth=32,
+            max_utterance_ms=30_000,
+        ),
+    )
+
+    with pytest.raises(ProtocolViolation):
+        encode_welcome(welcome)
 
 
 def test_audio_encoding_matches_binary_golden_fixture() -> None:

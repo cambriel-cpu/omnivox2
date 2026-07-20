@@ -8,6 +8,7 @@ members = [
     "omnivox-evaluation",
     "omnivox-gateway",
     "omnivox-protocol",
+    "omnivox-skull-simulator",
 ]
 
 [[package]]
@@ -254,6 +255,7 @@ dependencies = [
     { name = "omnivox-evaluation" },
     { name = "omnivox-gateway" },
     { name = "omnivox-protocol" },
+    { name = "omnivox-skull-simulator" },
 ]
 
 [package.dev-dependencies]
@@ -271,6 +273,7 @@ requires-dist = [
     { name = "omnivox-evaluation", editable = "packages/evaluation" },
     { name = "omnivox-gateway", editable = "packages/gateway" },
     { name = "omnivox-protocol", editable = "packages/protocol" },
+    { name = "omnivox-skull-simulator", editable = "tools/skull-simulator" },
 ]
 
 [package.metadata.requires-dev]
@@ -313,6 +316,17 @@ requires-dist = [{ name = "omnivox-protocol", editable = "packages/protocol" }]
 name = "omnivox-protocol"
 version = "0.1.0"
 source = { editable = "packages/protocol" }
+
+[[package]]
+name = "omnivox-skull-simulator"
+version = "0.1.0"
+source = { editable = "tools/skull-simulator" }
+dependencies = [
+    { name = "omnivox-protocol" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "omnivox-protocol", editable = "packages/protocol" }]
 
 [[package]]
 name = "packageurl-python"
