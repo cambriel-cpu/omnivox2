@@ -21,6 +21,41 @@ Raw personal audio and transcripts remain outside the public repository. Fixture
 paths, credentials, provider endpoints, and personal annotations are never copied
 into result records.
 
+Private suites use a UTF-8 JSON manifest with this versioned shape:
+
+```json
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "case_id": "clock-basic",
+      "audio_file": "audio/clock-basic.opus",
+      "codec": "opus",
+      "conversation_id": "00000000-0000-4000-8000-000000000002",
+      "request_id": "00000000-0000-4000-8000-000000000003"
+    }
+  ]
+}
+```
+
+The initial loader enforces these bounds before evaluation:
+
+- The manifest is at most 262,144 bytes, has no duplicate or unknown fields, and
+  contains at most 1,000 cases.
+- Case identifiers are unique, 1–64 character lowercase identifiers containing
+  only letters, digits, and internal hyphens.
+- Conversation and request identifiers are canonical UUIDs; request identifiers
+  are unique within the suite.
+- Audio paths are relative POSIX paths beneath the manifest directory. Absolute
+  paths, parent traversal, and symlinks resolving outside that directory fail
+  closed.
+- Each audio fixture is a non-empty regular file no larger than 4,194,304 bytes.
+  The initial manifest accepts only the `opus` codec.
+
+The manifest and its audio directory are private inputs and must remain ignored by
+Git. Loading them into memory does not authorize copying paths or content into
+reports, logs, commits, or test artifacts.
+
 ## 3. Per-interaction record
 
 Each interaction produces only:
