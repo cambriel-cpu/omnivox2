@@ -1,5 +1,10 @@
 """Hardware-independent evaluation harness for Omni Vox 2."""
 
+from omnivox_evaluation.manifest import (
+    MAX_MANIFEST_BYTES,
+    EvaluationManifestError,
+    load_evaluation_manifest,
+)
 from omnivox_evaluation.runner import (
     EvaluationOutcome,
     EvaluationReport,
@@ -15,8 +20,10 @@ from omnivox_evaluation.suite import (
 )
 
 __all__ = [
+    "MAX_MANIFEST_BYTES",
     "CaseReport",
     "EvaluationCase",
+    "EvaluationManifestError",
     "EvaluationOutcome",
     "EvaluationReport",
     "EvaluationRunner",
@@ -24,4 +31,5 @@ __all__ = [
     "EvaluationSuiteError",
     "Percentiles",
     "SuiteReport",
+    "load_evaluation_manifest",
 ]
