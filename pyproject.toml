@@ -55,6 +55,7 @@ ignore = [
 "packages/protocol/src/omnivox_protocol/audio.py" = ["EM101"]
 "packages/protocol/src/omnivox_protocol/control.py" = ["EM101"]
 "packages/protocol/src/omnivox_protocol/errors.py" = ["N818"]
+"packages/protocol/src/omnivox_protocol/gateway_message.py" = ["EM101", "EM102", "TRY003"]
 "packages/protocol/src/omnivox_protocol/interaction.py" = ["EM101", "EM102", "TRY003"]
 "packages/protocol/src/omnivox_protocol/heartbeat.py" = ["EM101", "TRY003"]
 "packages/protocol/src/omnivox_protocol/welcome.py" = ["EM101", "TRY003"]

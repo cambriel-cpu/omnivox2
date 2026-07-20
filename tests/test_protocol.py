@@ -7,18 +7,25 @@ from omnivox_protocol import (
     MAX_BINARY_FRAME_BYTES,
     MAX_CONTROL_FRAME_BYTES,
     AudioCodec,
+    AudioEnd,
     AudioFrame,
+    AudioStart,
     CancelReason,
     CancelRequest,
     ClientMessage,
+    DeviceState,
     ErrorCode,
     ErrorMessage,
+    GatewayMessage,
     Heartbeat,
     Hello,
     Ping,
     Pong,
     ProtocolLimits,
     ProtocolViolation,
+    ResponseSegmentMessage,
+    StateMessage,
+    TranscriptMessage,
     UtteranceEnd,
     UtteranceStart,
     Wake,
@@ -27,12 +34,14 @@ from omnivox_protocol import (
     decode_audio_frame,
     decode_client_message,
     decode_error_message,
+    decode_gateway_message,
     decode_heartbeat,
     decode_hello,
     decode_welcome,
     encode_audio_frame,
     encode_client_message,
     encode_error_message,
+    encode_gateway_message,
     encode_heartbeat,
     encode_hello,
     encode_welcome,
@@ -353,5 +362,100 @@ def test_error_message_requires_strict_boolean() -> None:
 
     with pytest.raises(ProtocolViolation) as raised:
         decode_error_message(frame)
+
+    assert raised.value.code == "INVALID_MESSAGE"
+
+
+@pytest.mark.parametrize(
+    ("message", "fixture_name"),
+    [
+        (
+            TranscriptMessage(
+                WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=0),
+                text="What time is it?",
+                confidence=0.98,
+            ),
+            "transcript.json",
+        ),
+        (
+            ResponseSegmentMessage(
+                WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=1),
+                text="It is three.",
+                segment_sequence=0,
+            ),
+            "response-segment.json",
+        ),
+        (
+            AudioStart(WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=2)),
+            "audio-start.json",
+        ),
+        (
+            AudioEnd(
+                WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=3),
+                final_audio_sequence=1,
+            ),
+            "audio-end.json",
+        ),
+        (
+            StateMessage(
+                WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=4),
+                name=DeviceState.SPEAKING,
+            ),
+            "state.json",
+        ),
+    ],
+)
+def test_gateway_control_matches_golden_fixture(
+    message: GatewayMessage, fixture_name: str
+) -> None:
+    expected = (FIXTURES / fixture_name).read_bytes().rstrip(b"\n")
+
+    assert encode_gateway_message(message) == expected
+    assert decode_gateway_message(expected) == message
+
+
+def test_transcript_allows_omitted_confidence() -> None:
+    frame = (
+        b'{"conversation_id":"00000000-0000-4000-8000-000000000002",'
+        b'"payload":{"text":"Hello"},"protocol_version":2,'
+        b'"request_id":"00000000-0000-4000-8000-000000000003",'
+        b'"sequence":0,"type":"transcript"}'
+    )
+
+    assert decode_gateway_message(frame) == TranscriptMessage(
+        WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=0),
+        text="Hello",
+        confidence=None,
+    )
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        (
+            b'{"conversation_id":"00000000-0000-4000-8000-000000000002",'
+            b'"payload":{"confidence":true,"text":"Hello"},'
+            b'"protocol_version":2,'
+            b'"request_id":"00000000-0000-4000-8000-000000000003",'
+            b'"sequence":0,"type":"transcript"}'
+        ),
+        (
+            b'{"conversation_id":"00000000-0000-4000-8000-000000000002",'
+            b'"payload":{"name":"unknown"},"protocol_version":2,'
+            b'"request_id":"00000000-0000-4000-8000-000000000003",'
+            b'"sequence":0,"type":"state"}'
+        ),
+        (
+            b'{"conversation_id":"00000000-0000-4000-8000-000000000002",'
+            b'"payload":{"segment_sequence":0.0,"text":"Hello"},'
+            b'"protocol_version":2,'
+            b'"request_id":"00000000-0000-4000-8000-000000000003",'
+            b'"sequence":0,"type":"response_segment"}'
+        ),
+    ],
+)
+def test_gateway_control_fails_closed(frame: bytes) -> None:
+    with pytest.raises(ProtocolViolation) as raised:
+        decode_gateway_message(frame)
 
     assert raised.value.code == "INVALID_MESSAGE"

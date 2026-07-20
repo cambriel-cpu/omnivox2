@@ -1,0 +1,1 @@
+{"conversation_id":"00000000-0000-4000-8000-000000000002","payload":{"channels":1,"codec":"opus","sample_rate_hz":48000},"protocol_version":2,"request_id":"00000000-0000-4000-8000-000000000003","sequence":2,"type":"audio_start"}
