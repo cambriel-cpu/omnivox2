@@ -23,6 +23,8 @@ All notable changes to Omni Vox 2 will be documented here.
   fail-closed validation tests.
 - Canonical welcome negotiation and a hardware-independent skull simulator for
   handshake, state, and sequenced audio lifecycles.
+- Strict request-scoped wake, utterance, and cancel control codecs integrated into
+  the simulator lifecycle.
 
 ### Changed
 

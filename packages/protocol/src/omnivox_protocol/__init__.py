@@ -16,6 +16,17 @@ from omnivox_protocol.control import (
     encode_hello,
 )
 from omnivox_protocol.errors import ProtocolViolation
+from omnivox_protocol.interaction import (
+    CancelReason,
+    CancelRequest,
+    ClientMessage,
+    UtteranceEnd,
+    UtteranceStart,
+    Wake,
+    WireRequest,
+    decode_client_message,
+    encode_client_message,
+)
 from omnivox_protocol.models import (
     AudioChunk,
     AudioInput,
@@ -45,7 +56,10 @@ __all__ = [
     "AudioCodec",
     "AudioFrame",
     "AudioInput",
+    "CancelReason",
+    "CancelRequest",
     "Cancelled",
+    "ClientMessage",
     "Completed",
     "Hello",
     "PipelineEvent",
@@ -57,11 +71,17 @@ __all__ = [
     "TextSegment",
     "Transcript",
     "TranscriptReady",
+    "UtteranceEnd",
+    "UtteranceStart",
+    "Wake",
     "Welcome",
+    "WireRequest",
     "decode_audio_frame",
+    "decode_client_message",
     "decode_hello",
     "decode_welcome",
     "encode_audio_frame",
+    "encode_client_message",
     "encode_hello",
     "encode_welcome",
 ]

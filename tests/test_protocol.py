@@ -8,20 +8,30 @@ from omnivox_protocol import (
     MAX_CONTROL_FRAME_BYTES,
     AudioCodec,
     AudioFrame,
+    CancelReason,
+    CancelRequest,
+    ClientMessage,
     Hello,
     ProtocolLimits,
     ProtocolViolation,
+    UtteranceEnd,
+    UtteranceStart,
+    Wake,
     Welcome,
+    WireRequest,
     decode_audio_frame,
+    decode_client_message,
     decode_hello,
     decode_welcome,
     encode_audio_frame,
+    encode_client_message,
     encode_hello,
     encode_welcome,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "protocol"
 REQUEST_ID = UUID("00000000-0000-4000-8000-000000000003")
+CONVERSATION_ID = UUID("00000000-0000-4000-8000-000000000002")
 
 
 def test_hello_encoding_matches_canonical_golden_fixture() -> None:
@@ -177,3 +187,69 @@ def test_audio_size_limit_includes_header() -> None:
         encode_audio_frame(oversized)
 
     assert raised.value.code == "PAYLOAD_TOO_LARGE"
+
+
+@pytest.mark.parametrize(
+    ("message", "fixture_name"),
+    [
+        (
+            Wake(WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=0)),
+            "wake.json",
+        ),
+        (
+            UtteranceStart(WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=1)),
+            "utterance-start.json",
+        ),
+        (
+            UtteranceEnd(
+                WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=2),
+                final_audio_sequence=1,
+            ),
+            "utterance-end.json",
+        ),
+        (
+            CancelRequest(
+                WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=3),
+                reason=CancelReason.BARGE_IN,
+            ),
+            "cancel.json",
+        ),
+    ],
+)
+def test_client_control_matches_golden_fixture(
+    message: ClientMessage, fixture_name: str
+) -> None:
+    expected = (FIXTURES / fixture_name).read_bytes().rstrip(b"\n")
+
+    assert encode_client_message(message) == expected
+    assert decode_client_message(expected) == message
+
+
+@pytest.mark.parametrize(
+    "frame",
+    [
+        (
+            b'{"conversation_id":"00000000-0000-4000-8000-000000000002",'
+            b'"payload":{},"protocol_version":2,'
+            b'"request_id":"00000000-0000-4000-8000-000000000003",'
+            b'"sequence":0.0,"type":"wake"}'
+        ),
+        (
+            b'{"conversation_id":"NOT-A-UUID","payload":{},'
+            b'"protocol_version":2,'
+            b'"request_id":"00000000-0000-4000-8000-000000000003",'
+            b'"sequence":0,"type":"wake"}'
+        ),
+        (
+            b'{"conversation_id":"00000000-0000-4000-8000-000000000002",'
+            b'"payload":{"extra":true},"protocol_version":2,'
+            b'"request_id":"00000000-0000-4000-8000-000000000003",'
+            b'"sequence":0,"type":"wake"}'
+        ),
+    ],
+)
+def test_client_control_fails_closed(frame: bytes) -> None:
+    with pytest.raises(ProtocolViolation) as raised:
+        decode_client_message(frame)
+
+    assert raised.value.code == "INVALID_MESSAGE"
