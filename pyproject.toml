@@ -35,6 +35,9 @@ members = ["packages/*", "tools/skull-simulator"]
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers"
 asyncio_mode = "auto"
+markers = [
+    "real_provider: requires explicit credentials, billing approval, and --run-real-provider",
+]
 testpaths = ["tests"]
 
 [tool.ruff]
