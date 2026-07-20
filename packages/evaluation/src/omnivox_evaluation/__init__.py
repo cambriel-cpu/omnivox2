@@ -5,5 +5,23 @@ from omnivox_evaluation.runner import (
     EvaluationReport,
     EvaluationRunner,
 )
+from omnivox_evaluation.suite import (
+    CaseReport,
+    EvaluationCase,
+    EvaluationSuite,
+    EvaluationSuiteError,
+    Percentiles,
+    SuiteReport,
+)
 
-__all__ = ["EvaluationOutcome", "EvaluationReport", "EvaluationRunner"]
+__all__ = [
+    "CaseReport",
+    "EvaluationCase",
+    "EvaluationOutcome",
+    "EvaluationReport",
+    "EvaluationRunner",
+    "EvaluationSuite",
+    "EvaluationSuiteError",
+    "Percentiles",
+    "SuiteReport",
+]

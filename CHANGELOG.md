@@ -28,6 +28,8 @@ All notable changes to Omni Vox 2 will be documented here.
 - In-process gateway device-session validation for authenticated identity, request
   ordering, cancellation, completion, disconnect, and reconnect isolation.
 - Privacy and percentile semantics for batch evaluation reports.
+- Ordered batch evaluation with outcome totals, nearest-rank latency percentiles,
+  case/request correlation, and content-free machine records.
 
 ### Changed
 
