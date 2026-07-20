@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from enum import StrEnum
+from math import isfinite
 from time import monotonic
 from typing import Protocol
 
@@ -69,6 +70,23 @@ class EvaluationReport:
     recovery: RecoveryMeasurement | None = None
     cost_microusd: int | None = None
 
+    def __post_init__(self) -> None:
+        """Reject non-finite timing or invalid cost observations."""
+        latencies = (
+            self.transcript_ms,
+            self.first_text_ms,
+            self.first_audio_ms,
+            self.total_ms,
+        )
+        if any(value is not None and not _valid_latency(value) for value in latencies):
+            message = "evaluation latency must be finite and non-negative"
+            raise EvaluationMeasurementError(message)
+        if self.cost_microusd is not None and (
+            type(self.cost_microusd) is not int or self.cost_microusd < 0
+        ):
+            message = "request cost must be a non-negative integer or null"
+            raise EvaluationMeasurementError(message)
+
     def as_record(self) -> dict[str, object]:
         """Return a machine-readable record containing no speech content."""
         return {
@@ -126,6 +144,9 @@ class EvaluationRunner:
 
         try:
             async for event in self._pipeline.execute(audio, context):
+                if event.context != context:
+                    message = "pipeline event does not match the evaluated request"
+                    raise EvaluationMeasurementError(message)
                 elapsed_ms = self._elapsed_ms(started_at)
                 if isinstance(event, TranscriptReady) and transcript_ms is None:
                     transcript_ms = elapsed_ms
@@ -203,8 +224,8 @@ class EvaluationRunner:
     def _measure_cost(self, request_id: str) -> int | None:
         if self._cost_meter is None:
             return None
-        cost = self._cost_meter(request_id)
-        if cost is not None and (type(cost) is not int or cost < 0):
-            message = "request cost must be a non-negative integer or null"
-            raise EvaluationMeasurementError(message)
-        return cost
+        return self._cost_meter(request_id)
+
+
+def _valid_latency(value: float) -> bool:
+    return type(value) in {int, float} and isfinite(value) and value >= 0.0

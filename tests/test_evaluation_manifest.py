@@ -13,6 +13,7 @@ from omnivox_protocol import AudioInput, RequestContext
 
 CONVERSATION_ID = "00000000-0000-4000-8000-000000000002"
 REQUEST_ID = "00000000-0000-4000-8000-000000000003"
+MAX_ACCURACY_WORDS = 2_048
 
 
 def valid_case(**overrides: object) -> dict[str, object]:
@@ -115,6 +116,18 @@ def test_v2_manifest_rejects_invalid_recovery_annotations(
     case = valid_case(recovery=recovery)
 
     with pytest.raises(EvaluationManifestError, match="recovery"):
+        load_evaluation_manifest(write_manifest(tmp_path, [case], schema_version=2))
+
+
+def test_v2_manifest_rejects_excessive_accuracy_work(tmp_path: Path) -> None:
+    case = valid_case(
+        accuracy={
+            "reference_transcript": "a " * (MAX_ACCURACY_WORDS + 1),
+            "proper_nouns": [],
+        }
+    )
+
+    with pytest.raises(EvaluationManifestError, match="accuracy"):
         load_evaluation_manifest(write_manifest(tmp_path, [case], schema_version=2))
 
 

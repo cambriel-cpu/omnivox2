@@ -3,10 +3,12 @@ from dataclasses import dataclass
 
 import pytest
 from omnivox_evaluation import (
+    AccuracyMeasurement,
     AccuracyReference,
     EvaluationMeasurementError,
     EvaluationOutcome,
     EvaluationRunner,
+    RecoveryMeasurement,
     RecoveryObservation,
     RecoveryScenario,
 )
@@ -27,6 +29,7 @@ from omnivox_protocol import (
 
 EXPECTED_DELETION_ERRORS = 2
 MEASURED_COST_MICROUSD = 240
+MAX_ACCURACY_WORDS = 2_048
 
 
 @dataclass
@@ -318,3 +321,74 @@ async def test_cost_rejects_negative_or_non_integer_values() -> None:
 
     with pytest.raises(EvaluationMeasurementError, match="cost"):
         await runner.run(AudioInput(codec="opus", data=b"audio"), context)
+
+
+@pytest.mark.asyncio
+async def test_runner_rejects_pipeline_event_for_another_request() -> None:
+    clock = ManualClock()
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    other_context = RequestContext(
+        conversation_id="conversation-2",
+        request_id="request-2",
+    )
+    runner = EvaluationRunner(
+        ScriptedPipeline(
+            clock,
+            (TimedEvent(0.100, Completed(context=other_context)),),
+        ),
+        clock=clock,
+    )
+
+    with pytest.raises(EvaluationMeasurementError, match="pipeline event"):
+        await runner.run(AudioInput(codec="opus", data=b"audio"), context)
+
+
+@pytest.mark.asyncio
+async def test_accuracy_rejects_an_over_limit_hypothesis() -> None:
+    clock = ManualClock()
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    oversized_hypothesis = "word " * (MAX_ACCURACY_WORDS + 1)
+    runner = EvaluationRunner(
+        ScriptedPipeline(
+            clock,
+            (
+                TimedEvent(
+                    0.100,
+                    TranscriptReady(
+                        context=context,
+                        transcript=Transcript(text=oversized_hypothesis),
+                        provider="stt-a",
+                    ),
+                ),
+                TimedEvent(0.100, Completed(context=context)),
+            ),
+        ),
+        clock=clock,
+    )
+
+    with pytest.raises(EvaluationMeasurementError, match="hypothesis"):
+        await runner.run(
+            AudioInput(codec="opus", data=b"audio"),
+            context,
+            accuracy=AccuracyReference("hello"),
+        )
+
+
+@pytest.mark.parametrize(
+    "measurement",
+    [
+        lambda: AccuracyMeasurement(-1, 1, 0, 0),
+        lambda: AccuracyMeasurement(0, 0, 0, 0),
+        lambda: AccuracyMeasurement(0, 1, 2, 1),
+        lambda: RecoveryMeasurement(
+            scenario=RecoveryScenario.PACKET_LOSS,
+            recovered=True,
+            recovery_ms=None,
+        ),
+    ],
+)
+def test_content_free_measurements_reject_invalid_values(
+    measurement: Callable[[], object],
+) -> None:
+    with pytest.raises(EvaluationMeasurementError):
+        measurement()

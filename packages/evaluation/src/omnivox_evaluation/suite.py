@@ -1,18 +1,22 @@
 """Privacy-safe aggregation for repeatable evaluation suites."""
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
-from math import ceil
-from typing import Protocol
+from typing import Protocol, cast
 
 from omnivox_protocol import AudioInput, RequestContext
 
-from omnivox_evaluation.metrics import (
-    AccuracyMeasurement,
-    AccuracyReference,
-    RecoveryMeasurement,
-    RecoveryScenario,
+from omnivox_evaluation.aggregation import (
+    AccuracySummary,
+    CostSummary,
+    Percentiles,
+    RecoverySummary,
+    accuracy_summary,
+    cost_summary,
+    percentiles,
+    recovery_summary,
 )
+from omnivox_evaluation.metrics import AccuracyReference, RecoveryScenario
 from omnivox_evaluation.runner import EvaluationOutcome, EvaluationReport
 
 
@@ -21,7 +25,15 @@ class EvaluationSuiteError(ValueError):
 
 
 class InteractionEvaluator(Protocol):
-    """Run one evaluation interaction."""
+    """Run one latency-only evaluation interaction."""
+
+    async def run(self, audio: AudioInput, context: RequestContext) -> EvaluationReport:
+        """Return content-free results for one interaction."""
+        ...
+
+
+class AnnotatedInteractionEvaluator(Protocol):
+    """Run an interaction with optional private measurement inputs."""
 
     async def run(
         self,
@@ -31,7 +43,7 @@ class InteractionEvaluator(Protocol):
         accuracy: AccuracyReference | None = None,
         recovery_scenario: RecoveryScenario | None = None,
     ) -> EvaluationReport:
-        """Return content-free results for one interaction."""
+        """Return content-free results for an annotated interaction."""
         ...
 
 
@@ -56,68 +68,6 @@ class CaseReport:
     def as_record(self) -> dict[str, object]:
         """Return a machine-readable content-free case record."""
         return {"case_id": self.case_id, **self.interaction.as_record()}
-
-
-@dataclass(frozen=True, slots=True)
-class Percentiles:
-    """Nearest-rank p50 and p95 observations."""
-
-    p50: float | None
-    p95: float | None
-
-    def as_record(self) -> dict[str, float | None]:
-        """Return a machine-readable percentile pair."""
-        return {"p50": self.p50, "p95": self.p95}
-
-
-@dataclass(frozen=True, slots=True)
-class AccuracySummary:
-    """Micro-averaged content-free accuracy measurements."""
-
-    measured_cases: int
-    measurement: AccuracyMeasurement
-
-    def as_record(self) -> dict[str, object]:
-        """Return aggregate counts and rates."""
-        return {
-            "measured_cases": self.measured_cases,
-            **self.measurement.as_record(),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class RecoverySummary:
-    """Aggregate deterministic recovery results."""
-
-    measured_cases: int
-    recovered_cases: int
-    recovery_ms: Percentiles
-
-    def as_record(self) -> dict[str, object]:
-        """Return aggregate recovery success and latency."""
-        return {
-            "measured_cases": self.measured_cases,
-            "recovered_cases": self.recovered_cases,
-            "recovered_percent": (self.recovered_cases / self.measured_cases) * 100.0,
-            "recovery_ms": self.recovery_ms.as_record(),
-        }
-
-
-@dataclass(frozen=True, slots=True)
-class CostSummary:
-    """Observed request cost with a completeness-aware normalized estimate."""
-
-    measured_cases: int
-    observed_microusd: int
-    per_100_interactions_microusd: int | None
-
-    def as_record(self) -> dict[str, int | None]:
-        """Return machine-readable integer cost values."""
-        return {
-            "measured_cases": self.measured_cases,
-            "observed_microusd": self.observed_microusd,
-            "per_100_interactions_microusd": self.per_100_interactions_microusd,
-        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,7 +117,10 @@ class SuiteReport:
 class EvaluationSuite:
     """Run cases in stable order and aggregate privacy-safe measurements."""
 
-    def __init__(self, evaluator: InteractionEvaluator) -> None:
+    def __init__(
+        self,
+        evaluator: InteractionEvaluator | AnnotatedInteractionEvaluator,
+    ) -> None:
         self._evaluator = evaluator
 
     async def run(self, cases: Sequence[EvaluationCase]) -> SuiteReport:
@@ -183,15 +136,8 @@ class EvaluationSuite:
         failed = 0
 
         for case in cases:
-            interaction = await self._evaluator.run(
-                case.audio,
-                case.context,
-                accuracy=case.accuracy,
-                recovery_scenario=case.recovery_scenario,
-            )
-            if interaction.request_id != case.context.request_id:
-                message = "evaluation report request does not match its case"
-                raise EvaluationSuiteError(message)
+            interaction = await self._evaluate(case)
+            _validate_correlation(case, interaction)
             reports.append(CaseReport(case.case_id, interaction))
             if interaction.outcome is EvaluationOutcome.COMPLETED:
                 completed += 1
@@ -205,91 +151,50 @@ class EvaluationSuite:
             completed=completed,
             cancelled=cancelled,
             failed=failed,
-            transcript=_percentiles(
+            transcript=percentiles(
                 report.interaction.transcript_ms for report in reports
             ),
-            first_text=_percentiles(
+            first_text=percentiles(
                 report.interaction.first_text_ms for report in reports
             ),
-            first_audio=_percentiles(
+            first_audio=percentiles(
                 report.interaction.first_audio_ms for report in reports
             ),
-            total=_percentiles(report.interaction.total_ms for report in reports),
-            accuracy=_accuracy_summary(reports),
-            recovery=_recovery_summary(reports),
-            cost=_cost_summary(reports),
+            total=percentiles(report.interaction.total_ms for report in reports),
+            accuracy=accuracy_summary([report.interaction for report in reports]),
+            recovery=recovery_summary([report.interaction for report in reports]),
+            cost=cost_summary([report.interaction for report in reports]),
+        )
+
+    async def _evaluate(self, case: EvaluationCase) -> EvaluationReport:
+        if case.accuracy is None and case.recovery_scenario is None:
+            return await self._evaluator.run(case.audio, case.context)
+        evaluator = cast("AnnotatedInteractionEvaluator", self._evaluator)
+        return await evaluator.run(
+            case.audio,
+            case.context,
+            accuracy=case.accuracy,
+            recovery_scenario=case.recovery_scenario,
         )
 
 
-def _percentiles(values: Iterable[float | None]) -> Percentiles:
-    observations = sorted(value for value in values if value is not None)
-    if not observations:
-        return Percentiles(p50=None, p95=None)
-    return Percentiles(
-        p50=_nearest_rank(observations, 0.50),
-        p95=_nearest_rank(observations, 0.95),
-    )
-
-
-def _nearest_rank(observations: list[float], percentile: float) -> float:
-    rank = ceil(percentile * len(observations))
-    return observations[rank - 1]
-
-
-def _accuracy_summary(reports: list[CaseReport]) -> AccuracySummary | None:
-    measurements = [
-        report.interaction.accuracy
-        for report in reports
-        if report.interaction.accuracy is not None
-    ]
-    if not measurements:
-        return None
-    return AccuracySummary(
-        measured_cases=len(measurements),
-        measurement=AccuracyMeasurement(
-            word_errors=sum(value.word_errors for value in measurements),
-            reference_words=sum(value.reference_words for value in measurements),
-            proper_nouns_correct=sum(
-                value.proper_nouns_correct for value in measurements
-            ),
-            proper_nouns_total=sum(value.proper_nouns_total for value in measurements),
-        ),
-    )
-
-
-def _recovery_summary(reports: list[CaseReport]) -> RecoverySummary | None:
-    measurements: list[RecoveryMeasurement] = [
-        report.interaction.recovery
-        for report in reports
-        if report.interaction.recovery is not None
-    ]
-    if not measurements:
-        return None
-    recovered = [value for value in measurements if value.recovered]
-    return RecoverySummary(
-        measured_cases=len(measurements),
-        recovered_cases=len(recovered),
-        recovery_ms=_percentiles(value.recovery_ms for value in recovered),
-    )
-
-
-def _cost_summary(reports: list[CaseReport]) -> CostSummary:
-    observed = [
-        report.interaction.cost_microusd
-        for report in reports
-        if report.interaction.cost_microusd is not None
-    ]
-    total = sum(observed)
-    complete = bool(reports) and len(observed) == len(reports)
-    normalized = (
-        _round_fraction_half_up(total * 100, len(reports)) if complete else None
-    )
-    return CostSummary(
-        measured_cases=len(observed),
-        observed_microusd=total,
-        per_100_interactions_microusd=normalized,
-    )
-
-
-def _round_fraction_half_up(numerator: int, denominator: int) -> int:
-    return ((2 * numerator) + denominator) // (2 * denominator)
+def _validate_correlation(
+    case: EvaluationCase,
+    interaction: EvaluationReport,
+) -> None:
+    if interaction.request_id != case.context.request_id:
+        message = "evaluation report request does not match its case"
+        raise EvaluationSuiteError(message)
+    if (case.accuracy is None) != (interaction.accuracy is None):
+        message = "evaluation report accuracy does not match its case"
+        raise EvaluationSuiteError(message)
+    if case.recovery_scenario is None:
+        if interaction.recovery is not None:
+            message = "evaluation report recovery does not match its case"
+            raise EvaluationSuiteError(message)
+    elif (
+        interaction.recovery is None
+        or interaction.recovery.scenario is not case.recovery_scenario
+    ):
+        message = "evaluation report recovery does not match its case"
+        raise EvaluationSuiteError(message)

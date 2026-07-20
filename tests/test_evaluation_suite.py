@@ -1,10 +1,11 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import pytest
 from omnivox_evaluation import (
     AccuracyMeasurement,
     AccuracyReference,
     EvaluationCase,
+    EvaluationMeasurementError,
     EvaluationOutcome,
     EvaluationReport,
     EvaluationSuite,
@@ -34,6 +35,19 @@ class StubEvaluator:
         del accuracy, recovery_scenario
         self.seen_audio.append(audio.data)
         return self.reports[context.request_id]
+
+
+@dataclass
+class LegacyEvaluator:
+    report: EvaluationReport
+
+    async def run(
+        self,
+        audio: AudioInput,
+        context: RequestContext,
+    ) -> EvaluationReport:
+        del audio, context
+        return self.report
 
 
 def report(  # noqa: PLR0913
@@ -221,7 +235,18 @@ async def test_suite_aggregates_accuracy_recovery_and_complete_cost() -> None:
 
     record = (
         await EvaluationSuite(StubEvaluator(reports)).run(
-            (evaluation_case(1), evaluation_case(2))
+            (
+                replace(
+                    evaluation_case(1),
+                    accuracy=AccuracyReference("one two three four"),
+                    recovery_scenario=RecoveryScenario.PACKET_LOSS,
+                ),
+                replace(
+                    evaluation_case(2),
+                    accuracy=AccuracyReference("one two three four five six"),
+                    recovery_scenario=RecoveryScenario.PROVIDER_TIMEOUT,
+                ),
+            )
         )
     ).as_record()
 
@@ -300,6 +325,102 @@ async def test_cost_per_100_rounds_half_up_to_integer_microusd() -> None:
     )
 
     assert result.cost.per_100_interactions_microusd == ROUNDED_COST_PER_100_MICROUSD
+
+
+@pytest.mark.asyncio
+async def test_latency_only_case_supports_legacy_evaluator_signature() -> None:
+    interaction = report(
+        "request-1",
+        EvaluationOutcome.COMPLETED,
+        transcript_ms=1.0,
+        first_text_ms=2.0,
+        first_audio_ms=3.0,
+        total_ms=4.0,
+    )
+
+    result = await EvaluationSuite(LegacyEvaluator(interaction)).run(
+        (evaluation_case(1),)
+    )
+
+    assert result.completed == 1
+
+
+@pytest.mark.asyncio
+async def test_suite_rejects_missing_requested_accuracy() -> None:
+    interaction = report(
+        "request-1",
+        EvaluationOutcome.COMPLETED,
+        transcript_ms=1.0,
+        first_text_ms=2.0,
+        first_audio_ms=3.0,
+        total_ms=4.0,
+    )
+    case = replace(
+        evaluation_case(1),
+        accuracy=AccuracyReference("private reference"),
+    )
+
+    with pytest.raises(EvaluationSuiteError, match="accuracy"):
+        await EvaluationSuite(StubEvaluator({"request-1": interaction})).run((case,))
+
+
+@pytest.mark.asyncio
+async def test_suite_rejects_unsolicited_accuracy() -> None:
+    interaction = report(
+        "request-1",
+        EvaluationOutcome.COMPLETED,
+        transcript_ms=1.0,
+        first_text_ms=2.0,
+        first_audio_ms=3.0,
+        total_ms=4.0,
+        accuracy=AccuracyMeasurement(
+            word_errors=0,
+            reference_words=1,
+            proper_nouns_correct=0,
+            proper_nouns_total=0,
+        ),
+    )
+
+    with pytest.raises(EvaluationSuiteError, match="accuracy"):
+        await EvaluationSuite(StubEvaluator({"request-1": interaction})).run(
+            (evaluation_case(1),)
+        )
+
+
+@pytest.mark.asyncio
+async def test_suite_rejects_unsolicited_or_mismatched_recovery() -> None:
+    interaction = report(
+        "request-1",
+        EvaluationOutcome.COMPLETED,
+        transcript_ms=1.0,
+        first_text_ms=2.0,
+        first_audio_ms=3.0,
+        total_ms=4.0,
+        recovery=RecoveryMeasurement(
+            scenario=RecoveryScenario.PROVIDER_TIMEOUT,
+            recovered=False,
+            recovery_ms=None,
+        ),
+    )
+    case = replace(
+        evaluation_case(1),
+        recovery_scenario=RecoveryScenario.PACKET_LOSS,
+    )
+
+    with pytest.raises(EvaluationSuiteError, match="recovery"):
+        await EvaluationSuite(StubEvaluator({"request-1": interaction})).run((case,))
+
+
+def test_evaluation_report_rejects_non_finite_latency() -> None:
+    with pytest.raises(EvaluationMeasurementError, match="latency"):
+        report(
+            "request-1",
+            EvaluationOutcome.COMPLETED,
+            transcript_ms=1.0,
+            first_text_ms=2.0,
+            first_audio_ms=3.0,
+            total_ms=float("nan"),
+        )
 
 
 @pytest.mark.asyncio
