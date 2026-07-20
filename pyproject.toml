@@ -50,6 +50,9 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+"packages/protocol/src/omnivox_protocol/audio.py" = ["EM101"]
+"packages/protocol/src/omnivox_protocol/control.py" = ["EM101"]
+"packages/protocol/src/omnivox_protocol/errors.py" = ["N818"]
 "tests/**" = ["D", "S101"]
 
 [tool.mypy]
