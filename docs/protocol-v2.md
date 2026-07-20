@@ -122,6 +122,12 @@ Message payloads:
 Canonical state names are `booting`, `connecting`, `idle`, `listening`,
 `thinking`, `speaking`, `unavailable`, and `reconnecting`.
 
+An `error` payload uses one of the v2 error codes listed in section 9,
+requires a strict JSON boolean for `retryable`, and carries a canonical UUID
+`trace_id`. Its user-safe `message` is 1–256 printable Unicode characters and
+must not contain control characters. The error retains the interaction envelope
+so the receiver can enforce request correlation and sender sequence ordering.
+
 Transcript and response text are required on the wire but remain sensitive:
 logging and metrics must omit their payloads by default.
 
