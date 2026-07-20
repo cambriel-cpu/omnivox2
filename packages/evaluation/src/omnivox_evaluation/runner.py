@@ -18,6 +18,16 @@ from omnivox_protocol import (
     TranscriptReady,
 )
 
+from omnivox_evaluation.metrics import (
+    AccuracyMeasurement,
+    AccuracyReference,
+    EvaluationMeasurementError,
+    RecoveryMeasurement,
+    RecoveryObservation,
+    RecoveryScenario,
+    measure_accuracy,
+)
+
 
 class EvaluationOutcome(StrEnum):
     """Terminal outcome recorded by the evaluation harness."""
@@ -37,6 +47,10 @@ class PipelineExecutor(Protocol):
         ...
 
 
+type CostMeter = Callable[[str], int | None]
+type RecoveryMeter = Callable[[str], RecoveryObservation | None]
+
+
 @dataclass(frozen=True, slots=True)
 class EvaluationReport:
     """Content-free timing and outcome data for one request."""
@@ -51,6 +65,9 @@ class EvaluationReport:
     omni_provider: str | None
     tts_provider: str | None
     error_code: str | None
+    accuracy: AccuracyMeasurement | None = None
+    recovery: RecoveryMeasurement | None = None
+    cost_microusd: int | None = None
 
     def as_record(self) -> dict[str, object]:
         """Return a machine-readable record containing no speech content."""
@@ -65,6 +82,9 @@ class EvaluationReport:
             "omni_provider": self.omni_provider,
             "tts_provider": self.tts_provider,
             "error_code": self.error_code,
+            "accuracy": self.accuracy.as_record() if self.accuracy else None,
+            "recovery": self.recovery.as_record() if self.recovery else None,
+            "cost_microusd": self.cost_microusd,
         }
 
 
@@ -76,11 +96,22 @@ class EvaluationRunner:
         pipeline: PipelineExecutor,
         *,
         clock: Callable[[], float] = monotonic,
+        recovery_meter: RecoveryMeter | None = None,
+        cost_meter: CostMeter | None = None,
     ) -> None:
         self._pipeline = pipeline
         self._clock = clock
+        self._recovery_meter = recovery_meter
+        self._cost_meter = cost_meter
 
-    async def run(self, audio: AudioInput, context: RequestContext) -> EvaluationReport:
+    async def run(
+        self,
+        audio: AudioInput,
+        context: RequestContext,
+        *,
+        accuracy: AccuracyReference | None = None,
+        recovery_scenario: RecoveryScenario | None = None,
+    ) -> EvaluationReport:
         """Evaluate one utterance without retaining its audio or text."""
         started_at = self._clock()
         transcript_ms: float | None = None
@@ -91,6 +122,7 @@ class EvaluationRunner:
         tts_provider: str | None = None
         outcome: EvaluationOutcome | None = None
         error_code: str | None = None
+        hypothesis: str | None = None
 
         try:
             async for event in self._pipeline.execute(audio, context):
@@ -98,6 +130,7 @@ class EvaluationRunner:
                 if isinstance(event, TranscriptReady) and transcript_ms is None:
                     transcript_ms = elapsed_ms
                     stt_provider = event.provider
+                    hypothesis = event.transcript.text
                 elif isinstance(event, ResponseText) and first_text_ms is None:
                     first_text_ms = elapsed_ms
                     omni_provider = event.provider
@@ -119,6 +152,15 @@ class EvaluationRunner:
             outcome = EvaluationOutcome.FAILED
             error_code = "INCOMPLETE_PIPELINE"
 
+        accuracy_measurement = (
+            measure_accuracy(accuracy, hypothesis or "") if accuracy else None
+        )
+        recovery_measurement = self._measure_recovery(
+            context.request_id,
+            recovery_scenario,
+        )
+        cost_microusd = self._measure_cost(context.request_id)
+
         return EvaluationReport(
             request_id=context.request_id,
             outcome=outcome,
@@ -130,7 +172,39 @@ class EvaluationRunner:
             omni_provider=omni_provider,
             tts_provider=tts_provider,
             error_code=error_code,
+            accuracy=accuracy_measurement,
+            recovery=recovery_measurement,
+            cost_microusd=cost_microusd,
         )
 
     def _elapsed_ms(self, started_at: float) -> float:
         return (self._clock() - started_at) * 1000.0
+
+    def _measure_recovery(
+        self,
+        request_id: str,
+        scenario: RecoveryScenario | None,
+    ) -> RecoveryMeasurement | None:
+        if scenario is None:
+            return None
+        if self._recovery_meter is None:
+            message = "declared scenario requires a recovery observation"
+            raise EvaluationMeasurementError(message)
+        observation = self._recovery_meter(request_id)
+        if observation is None:
+            message = "declared scenario requires a recovery observation"
+            raise EvaluationMeasurementError(message)
+        return RecoveryMeasurement(
+            scenario=scenario,
+            recovered=observation.recovered,
+            recovery_ms=observation.recovery_ms,
+        )
+
+    def _measure_cost(self, request_id: str) -> int | None:
+        if self._cost_meter is None:
+            return None
+        cost = self._cost_meter(request_id)
+        if cost is not None and (type(cost) is not int or cost < 0):
+            message = "request cost must be a non-negative integer or null"
+            raise EvaluationMeasurementError(message)
+        return cost

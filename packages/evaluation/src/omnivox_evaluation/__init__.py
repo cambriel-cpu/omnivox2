@@ -5,31 +5,51 @@ from omnivox_evaluation.manifest import (
     EvaluationManifestError,
     load_evaluation_manifest,
 )
+from omnivox_evaluation.metrics import (
+    AccuracyMeasurement,
+    AccuracyReference,
+    EvaluationMeasurementError,
+    RecoveryMeasurement,
+    RecoveryObservation,
+    RecoveryScenario,
+)
 from omnivox_evaluation.runner import (
     EvaluationOutcome,
     EvaluationReport,
     EvaluationRunner,
 )
 from omnivox_evaluation.suite import (
+    AccuracySummary,
     CaseReport,
+    CostSummary,
     EvaluationCase,
     EvaluationSuite,
     EvaluationSuiteError,
     Percentiles,
+    RecoverySummary,
     SuiteReport,
 )
 
 __all__ = [
     "MAX_MANIFEST_BYTES",
+    "AccuracyMeasurement",
+    "AccuracyReference",
+    "AccuracySummary",
     "CaseReport",
+    "CostSummary",
     "EvaluationCase",
     "EvaluationManifestError",
+    "EvaluationMeasurementError",
     "EvaluationOutcome",
     "EvaluationReport",
     "EvaluationRunner",
     "EvaluationSuite",
     "EvaluationSuiteError",
     "Percentiles",
+    "RecoveryMeasurement",
+    "RecoveryObservation",
+    "RecoveryScenario",
+    "RecoverySummary",
     "SuiteReport",
     "load_evaluation_manifest",
 ]

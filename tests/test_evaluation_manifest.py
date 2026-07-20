@@ -4,7 +4,9 @@ from pathlib import Path
 import pytest
 from omnivox_evaluation import (
     MAX_MANIFEST_BYTES,
+    AccuracyReference,
     EvaluationManifestError,
+    RecoveryScenario,
     load_evaluation_manifest,
 )
 from omnivox_protocol import AudioInput, RequestContext
@@ -25,10 +27,15 @@ def valid_case(**overrides: object) -> dict[str, object]:
     return case
 
 
-def write_manifest(root: Path, cases: list[dict[str, object]]) -> Path:
+def write_manifest(
+    root: Path,
+    cases: list[dict[str, object]],
+    *,
+    schema_version: int = 1,
+) -> Path:
     path = root / "manifest.json"
     path.write_text(
-        json.dumps({"schema_version": 1, "cases": cases}),
+        json.dumps({"schema_version": schema_version, "cases": cases}),
         encoding="utf-8",
     )
     return path
@@ -50,6 +57,65 @@ def test_manifest_loads_private_audio_without_retaining_its_path(
         request_id=REQUEST_ID,
     )
     assert "clock-basic.opus" not in repr(cases)
+
+
+def test_v2_manifest_loads_private_measurement_annotations(tmp_path: Path) -> None:
+    audio_directory = tmp_path / "audio"
+    audio_directory.mkdir()
+    (audio_directory / "clock-basic.opus").write_bytes(b"private opus bytes")
+    case = valid_case(
+        accuracy={
+            "reference_transcript": "Ask Omni for the weather",
+            "proper_nouns": ["Omni"],
+        },
+        recovery={"scenario": "packet_loss"},
+    )
+
+    cases = load_evaluation_manifest(write_manifest(tmp_path, [case], schema_version=2))
+
+    assert cases[0].accuracy == AccuracyReference(
+        reference_transcript="Ask Omni for the weather",
+        proper_nouns=("Omni",),
+    )
+    assert cases[0].recovery_scenario is RecoveryScenario.PACKET_LOSS
+    assert "Ask Omni for the weather" not in repr(cases)
+
+
+@pytest.mark.parametrize(
+    "accuracy",
+    [
+        None,
+        {"reference_transcript": "", "proper_nouns": []},
+        {"reference_transcript": "Hello Omni", "proper_nouns": ["missing"]},
+        {
+            "reference_transcript": "Hello Omni",
+            "proper_nouns": ["Omni"],
+            "unknown": True,
+        },
+    ],
+)
+def test_v2_manifest_rejects_invalid_accuracy_annotations(
+    tmp_path: Path,
+    accuracy: dict[str, object] | None,
+) -> None:
+    case = valid_case(accuracy=accuracy)
+
+    with pytest.raises(EvaluationManifestError, match="accuracy"):
+        load_evaluation_manifest(write_manifest(tmp_path, [case], schema_version=2))
+
+
+@pytest.mark.parametrize(
+    "recovery",
+    [None, {}, {"scenario": "physical_reboot"}, {"scenario": "packet_loss", "x": 1}],
+)
+def test_v2_manifest_rejects_invalid_recovery_annotations(
+    tmp_path: Path,
+    recovery: dict[str, object] | None,
+) -> None:
+    case = valid_case(recovery=recovery)
+
+    with pytest.raises(EvaluationManifestError, match="recovery"):
+        load_evaluation_manifest(write_manifest(tmp_path, [case], schema_version=2))
 
 
 def test_manifest_rejects_oversize_before_json_parsing(tmp_path: Path) -> None:

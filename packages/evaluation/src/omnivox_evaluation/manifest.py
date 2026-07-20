@@ -9,20 +9,29 @@ from uuid import UUID
 
 from omnivox_protocol import AudioInput, RequestContext
 
+from omnivox_evaluation.metrics import (
+    AccuracyReference,
+    EvaluationMeasurementError,
+    RecoveryScenario,
+    validate_accuracy_reference,
+)
 from omnivox_evaluation.suite import EvaluationCase
 
 MAX_MANIFEST_BYTES = 262_144
 MAX_AUDIO_BYTES = 4_194_304
 MAX_CASES = 1_000
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSIONS = {1, 2}
 _MANIFEST_FIELDS = {"cases", "schema_version"}
-_CASE_FIELDS = {
+_BASE_CASE_FIELDS = {
     "audio_file",
     "case_id",
     "codec",
     "conversation_id",
     "request_id",
 }
+_V2_OPTIONAL_CASE_FIELDS = {"accuracy", "recovery"}
+_ACCURACY_FIELDS = {"proper_nouns", "reference_transcript"}
+_RECOVERY_FIELDS = {"scenario"}
 _CASE_ID = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$")
 
 
@@ -36,6 +45,8 @@ class _ManifestCase:
     audio_path: PurePosixPath
     conversation_id: str
     request_id: str
+    accuracy: AccuracyReference | None
+    recovery_scenario: RecoveryScenario | None
 
 
 def load_evaluation_manifest(path: Path) -> tuple[EvaluationCase, ...]:
@@ -101,7 +112,8 @@ def _parse_manifest(value: object) -> tuple[_ManifestCase, ...]:
     if not isinstance(value, dict) or set(value) != _MANIFEST_FIELDS:
         message = "evaluation manifest fields do not match schema"
         raise EvaluationManifestError(message)
-    if type(value["schema_version"]) is not int or value["schema_version"] != 1:
+    schema_version = value["schema_version"]
+    if type(schema_version) is not int or schema_version not in _SCHEMA_VERSIONS:
         message = "evaluation manifest schema version is unsupported"
         raise EvaluationManifestError(message)
     cases_value = value["cases"]
@@ -109,7 +121,7 @@ def _parse_manifest(value: object) -> tuple[_ManifestCase, ...]:
         message = "evaluation manifest case list is invalid"
         raise EvaluationManifestError(message)
 
-    cases = tuple(_parse_case(item) for item in cases_value)
+    cases = tuple(_parse_case(item, schema_version) for item in cases_value)
     case_ids = [case.case_id for case in cases]
     request_ids = [case.request_id for case in cases]
     if len(case_ids) != len(set(case_ids)) or len(request_ids) != len(set(request_ids)):
@@ -118,8 +130,8 @@ def _parse_manifest(value: object) -> tuple[_ManifestCase, ...]:
     return cases
 
 
-def _parse_case(value: object) -> _ManifestCase:
-    if not isinstance(value, dict) or set(value) != _CASE_FIELDS:
+def _parse_case(value: object, schema_version: int) -> _ManifestCase:
+    if not isinstance(value, dict) or not _valid_case_fields(value, schema_version):
         message = "evaluation case fields do not match schema"
         raise EvaluationManifestError(message)
     case_id = value["case_id"]
@@ -135,7 +147,52 @@ def _parse_case(value: object) -> _ManifestCase:
         audio_path=_audio_path(value["audio_file"]),
         conversation_id=_canonical_uuid(value["conversation_id"], "conversation"),
         request_id=_canonical_uuid(value["request_id"], "request"),
+        accuracy=(
+            _accuracy_reference(value["accuracy"]) if "accuracy" in value else None
+        ),
+        recovery_scenario=(
+            _recovery_scenario(value["recovery"]) if "recovery" in value else None
+        ),
     )
+
+
+def _valid_case_fields(value: dict[object, object], schema_version: int) -> bool:
+    fields = set(value)
+    if schema_version == 1:
+        return fields == _BASE_CASE_FIELDS
+    return _BASE_CASE_FIELDS <= fields <= _BASE_CASE_FIELDS | _V2_OPTIONAL_CASE_FIELDS
+
+
+def _accuracy_reference(value: object) -> AccuracyReference:
+    if not isinstance(value, dict) or set(value) != _ACCURACY_FIELDS:
+        message = "evaluation accuracy fields do not match schema"
+        raise EvaluationManifestError(message)
+    transcript = value["reference_transcript"]
+    proper_nouns = value["proper_nouns"]
+    if not isinstance(transcript, str) or not isinstance(proper_nouns, list):
+        message = "evaluation accuracy values are invalid"
+        raise EvaluationManifestError(message)
+    if not all(isinstance(item, str) for item in proper_nouns):
+        message = "evaluation accuracy proper nouns are invalid"
+        raise EvaluationManifestError(message)
+    reference = AccuracyReference(transcript, tuple(proper_nouns))
+    try:
+        validate_accuracy_reference(reference)
+    except EvaluationMeasurementError as error:
+        message = "evaluation accuracy annotation is invalid"
+        raise EvaluationManifestError(message) from error
+    return reference
+
+
+def _recovery_scenario(value: object) -> RecoveryScenario:
+    if not isinstance(value, dict) or set(value) != _RECOVERY_FIELDS:
+        message = "evaluation recovery fields do not match schema"
+        raise EvaluationManifestError(message)
+    try:
+        return RecoveryScenario(value["scenario"])
+    except (TypeError, ValueError) as error:
+        message = "evaluation recovery scenario is invalid"
+        raise EvaluationManifestError(message) from error
 
 
 def _audio_path(value: object) -> PurePosixPath:
@@ -190,4 +247,6 @@ def _load_case(root: Path, case: _ManifestCase) -> EvaluationCase:
             conversation_id=case.conversation_id,
             request_id=case.request_id,
         ),
+        accuracy=case.accuracy,
+        recovery_scenario=case.recovery_scenario,
     )
