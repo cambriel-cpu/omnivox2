@@ -1,9 +1,10 @@
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 
 import pytest
 from omnivox_gateway.pipeline import ProviderBinding, VoicePipeline
+from omnivox_gateway.policy import PipelineLimits, PipelineStage
 from omnivox_gateway.providers import ProviderError
 from omnivox_protocol import (
     AudioChunk,
@@ -121,6 +122,25 @@ class BlockingFailingTextToSpeech:
             raise self.error
         if False:
             yield  # pragma: no cover
+
+
+@dataclass
+class DeterministicDeadlineRunner:
+    timeouts: list[PipelineStage]
+    calls: list[PipelineStage] = field(default_factory=list)
+
+    async def wait[ResultT](
+        self,
+        stage: PipelineStage,
+        operation: Callable[[], Awaitable[ResultT]],
+        timeout_seconds: float,
+    ) -> ResultT:
+        del timeout_seconds
+        self.calls.append(stage)
+        if self.timeouts and self.timeouts[0] is stage:
+            self.timeouts.pop(0)
+            raise TimeoutError
+        return await operation()
 
 
 def binding[ProviderT](name: str, provider: ProviderT) -> ProviderBinding[ProviderT]:
@@ -429,3 +449,214 @@ async def test_cancellation_suppresses_pending_tts_fallback() -> None:
     assert events[-1] == Cancelled(context=context)
     assert fallback.received_text == []
     assert omni.cancel_calls == [context.request_id]
+
+
+@pytest.mark.asyncio
+async def test_stt_timeout_uses_single_fallback() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    fallback_transcript = Transcript(text="fallback", confidence=0.8)
+    fallback = StubSpeechToText(fallback_transcript)
+    deadlines = DeterministicDeadlineRunner([PipelineStage.STT])
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="not reached", confidence=1.0)),
+        ),
+        stt_fallback=binding("fallback-stt", fallback),
+        omni=binding("openclaw", StubOmniSession(())),
+        tts=binding("primary-tts", StubTextToSpeech(())),
+        deadline_runner=deadlines,
+    )
+
+    events = [
+        event
+        async for event in pipeline.execute(
+            AudioInput(codec="opus", data=b"audio"), context
+        )
+    ]
+
+    assert events[0] == TranscriptReady(
+        context=context,
+        transcript=fallback_transcript,
+        provider="fallback-stt",
+    )
+    assert fallback.calls == [(AudioInput(codec="opus", data=b"audio"), context)]
+    expected_attempts = 2
+    assert deadlines.calls.count(PipelineStage.STT) == expected_attempts
+
+
+@pytest.mark.asyncio
+async def test_openclaw_segment_timeout_is_normalized() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    deadlines = DeterministicDeadlineRunner([PipelineStage.OPENCLAW])
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding(
+            "openclaw", StubOmniSession((TextSegment(sequence=0, text="Hello."),))
+        ),
+        tts=binding(
+            "primary-tts",
+            StubTextToSpeech(
+                (AudioChunk(request_id=context.request_id, sequence=0, data=b"audio"),)
+            ),
+        ),
+        deadline_runner=deadlines,
+    )
+
+    with pytest.raises(ProviderError) as raised:
+        _ = [
+            event
+            async for event in pipeline.execute(
+                AudioInput(codec="opus", data=b"audio"), context
+            )
+        ]
+
+    assert raised.value.code == "OPENCLAW_TIMEOUT"
+    assert raised.value.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_tts_timeout_before_audio_uses_fallback() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    segment = TextSegment(sequence=0, text="Hello.")
+    fallback = StubTextToSpeech(
+        (AudioChunk(request_id=context.request_id, sequence=0, data=b"fallback"),)
+    )
+    deadlines = DeterministicDeadlineRunner([PipelineStage.TTS])
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding("openclaw", StubOmniSession((segment,))),
+        tts=binding("primary-tts", StubTextToSpeech(())),
+        tts_fallback=binding("fallback-tts", fallback),
+        deadline_runner=deadlines,
+    )
+
+    events = [
+        event
+        async for event in pipeline.execute(
+            AudioInput(codec="opus", data=b"audio"), context
+        )
+    ]
+
+    assert fallback.received_text == [segment]
+    assert [event.provider for event in events if isinstance(event, SpokenAudio)] == [
+        "fallback-tts"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_response_character_limit_is_non_retryable() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    fallback = StubTextToSpeech(
+        (AudioChunk(request_id=context.request_id, sequence=0, data=b"not used"),)
+    )
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding(
+            "openclaw", StubOmniSession((TextSegment(sequence=0, text="too long"),))
+        ),
+        tts=binding("primary-tts", StubTextToSpeech(())),
+        tts_fallback=binding("fallback-tts", fallback),
+        limits=PipelineLimits(max_response_characters=3),
+    )
+
+    with pytest.raises(ProviderError) as raised:
+        _ = [
+            event
+            async for event in pipeline.execute(
+                AudioInput(codec="opus", data=b"audio"), context
+            )
+        ]
+
+    assert raised.value.code == "RESPONSE_LIMIT_EXCEEDED"
+    assert raised.value.retryable is False
+    assert fallback.received_text == []
+
+
+@pytest.mark.asyncio
+async def test_audio_chunk_limit_stops_request() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    segments = (
+        TextSegment(sequence=0, text="First."),
+        TextSegment(sequence=1, text="Second."),
+    )
+    chunks = (
+        AudioChunk(request_id=context.request_id, sequence=0, data=b"first"),
+        AudioChunk(request_id=context.request_id, sequence=1, data=b"second"),
+    )
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding("openclaw", StubOmniSession(segments)),
+        tts=binding("primary-tts", StubTextToSpeech(chunks)),
+        limits=PipelineLimits(max_audio_chunks=1),
+    )
+    stream = pipeline.execute(AudioInput(codec="opus", data=b"audio"), context)
+    await anext(stream)
+    await anext(stream)
+    first_audio = await anext(stream)
+
+    with pytest.raises(ProviderError) as raised:
+        await anext(stream)
+
+    assert isinstance(first_audio, SpokenAudio)
+    assert raised.value.code == "RESPONSE_LIMIT_EXCEEDED"
+
+
+@pytest.mark.asyncio
+async def test_active_request_limit_rejects_concurrent_execution() -> None:
+    first_context = RequestContext(
+        conversation_id="conversation-1",
+        request_id="request-1",
+    )
+    second_context = RequestContext(
+        conversation_id="conversation-2",
+        request_id="request-2",
+    )
+    blocking_tts = BlockingTextToSpeech()
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding(
+            "openclaw", StubOmniSession((TextSegment(sequence=0, text="Hello."),))
+        ),
+        tts=binding("primary-tts", blocking_tts),
+        limits=PipelineLimits(max_active_requests=1),
+    )
+
+    async def collect_first() -> list[PipelineEvent]:
+        return [
+            event
+            async for event in pipeline.execute(
+                AudioInput(codec="opus", data=b"first"), first_context
+            )
+        ]
+
+    first_execution = asyncio.create_task(collect_first())
+    await asyncio.wait_for(blocking_tts.entered.wait(), timeout=1.0)
+
+    with pytest.raises(ProviderError) as raised:
+        _ = [
+            event
+            async for event in pipeline.execute(
+                AudioInput(codec="opus", data=b"second"), second_context
+            )
+        ]
+
+    assert raised.value.code == "CONCURRENCY_LIMIT"
+    await pipeline.cancel(first_context.request_id)
+    blocking_tts.release.set()
+    await asyncio.wait_for(first_execution, timeout=1.0)
