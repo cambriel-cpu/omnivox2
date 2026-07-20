@@ -14,6 +14,8 @@ All notable changes to Omni Vox 2 will be documented here.
 - Initial hardware-independent implementation plan.
 - Python workspace with shared protocol models and a provider-neutral streaming
   gateway foundation.
+- Idempotent request cancellation with upstream propagation and late-audio
+  rejection.
 
 ### Changed
 

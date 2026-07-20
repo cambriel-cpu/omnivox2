@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 
@@ -7,7 +8,9 @@ from omnivox_gateway.providers import ProviderError
 from omnivox_protocol import (
     AudioChunk,
     AudioInput,
+    Cancelled,
     Completed,
+    PipelineEvent,
     RequestContext,
     ResponseText,
     SpokenAudio,
@@ -35,6 +38,7 @@ class StubSpeechToText:
 class StubOmniSession:
     segments: tuple[TextSegment, ...]
     calls: list[tuple[str, RequestContext]] = field(default_factory=list)
+    cancel_calls: list[str] = field(default_factory=list)
 
     async def respond(
         self, transcript: str, context: RequestContext
@@ -44,7 +48,7 @@ class StubOmniSession:
             yield segment
 
     async def cancel(self, request_id: str) -> None:
-        del request_id
+        self.cancel_calls.append(request_id)
 
 
 @dataclass
@@ -59,6 +63,25 @@ class StubTextToSpeech:
         async for segment in text:
             self.received_text.append(segment)
             yield self.chunks[len(self.received_text) - 1]
+
+
+@dataclass
+class BlockingTextToSpeech:
+    entered: asyncio.Event = field(default_factory=asyncio.Event)
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def synthesize(
+        self, text: AsyncIterator[TextSegment], context: RequestContext
+    ) -> AsyncIterator[AudioChunk]:
+        async for segment in text:
+            del segment
+            self.entered.set()
+            await self.release.wait()
+            yield AudioChunk(
+                request_id=context.request_id,
+                sequence=0,
+                data=b"late audio",
+            )
 
 
 def binding[ProviderT](name: str, provider: ProviderT) -> ProviderBinding[ProviderT]:
@@ -190,3 +213,39 @@ async def test_pipeline_rejects_audio_for_another_request() -> None:
 
     assert raised.value.code == "STALE_PROVIDER_OUTPUT"
     assert raised.value.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_cancellation_is_idempotent_and_discards_late_audio() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    transcript = Transcript(text="hello", confidence=1.0)
+    omni = StubOmniSession((TextSegment(sequence=0, text="Hello."),))
+    tts = BlockingTextToSpeech()
+    pipeline = VoicePipeline(
+        stt=binding("primary-stt", StubSpeechToText(transcript)),
+        omni=binding("openclaw", omni),
+        tts=binding("primary-tts", tts),
+    )
+
+    async def collect_events() -> list[PipelineEvent]:
+        return [
+            event
+            async for event in pipeline.execute(
+                AudioInput(codec="opus", data=b"audio"), context
+            )
+        ]
+
+    execution = asyncio.create_task(collect_events())
+    await asyncio.wait_for(tts.entered.wait(), timeout=1.0)
+
+    await pipeline.cancel(context.request_id)
+    await pipeline.cancel(context.request_id)
+    tts.release.set()
+    events = await asyncio.wait_for(execution, timeout=1.0)
+
+    assert events == [
+        TranscriptReady(context=context, transcript=transcript, provider="primary-stt"),
+        Cancelled(context=context),
+    ]
+    assert omni.cancel_calls == [context.request_id]
+    assert not any(isinstance(event, SpokenAudio) for event in events)

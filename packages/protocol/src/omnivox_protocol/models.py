@@ -78,4 +78,13 @@ class Completed:
     context: RequestContext
 
 
-type PipelineEvent = TranscriptReady | ResponseText | SpokenAudio | Completed
+@dataclass(frozen=True, slots=True)
+class Cancelled:
+    """The request was cancelled and no later output is valid."""
+
+    context: RequestContext
+
+
+type PipelineEvent = (
+    TranscriptReady | ResponseText | SpokenAudio | Completed | Cancelled
+)

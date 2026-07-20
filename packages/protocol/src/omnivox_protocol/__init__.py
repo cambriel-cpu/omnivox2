@@ -3,6 +3,7 @@
 from omnivox_protocol.models import (
     AudioChunk,
     AudioInput,
+    Cancelled,
     Completed,
     PipelineEvent,
     RequestContext,
@@ -16,6 +17,7 @@ from omnivox_protocol.models import (
 __all__ = [
     "AudioChunk",
     "AudioInput",
+    "Cancelled",
     "Completed",
     "PipelineEvent",
     "RequestContext",
