@@ -84,6 +84,45 @@ class BlockingTextToSpeech:
             )
 
 
+@dataclass
+class FailingTextToSpeech:
+    error: ProviderError
+    chunks_before_failure: tuple[AudioChunk, ...] = ()
+    received_text: list[TextSegment] = field(default_factory=list)
+    calls: int = 0
+
+    async def synthesize(
+        self, text: AsyncIterator[TextSegment], context: RequestContext
+    ) -> AsyncIterator[AudioChunk]:
+        del context
+        self.calls += 1
+        async for segment in text:
+            self.received_text.append(segment)
+            chunk_index = len(self.received_text) - 1
+            if chunk_index < len(self.chunks_before_failure):
+                yield self.chunks_before_failure[chunk_index]
+        raise self.error
+
+
+@dataclass
+class BlockingFailingTextToSpeech:
+    error: ProviderError
+    entered: asyncio.Event = field(default_factory=asyncio.Event)
+    release: asyncio.Event = field(default_factory=asyncio.Event)
+
+    async def synthesize(
+        self, text: AsyncIterator[TextSegment], context: RequestContext
+    ) -> AsyncIterator[AudioChunk]:
+        del context
+        async for segment in text:
+            del segment
+            self.entered.set()
+            await self.release.wait()
+            raise self.error
+        if False:
+            yield  # pragma: no cover
+
+
 def binding[ProviderT](name: str, provider: ProviderT) -> ProviderBinding[ProviderT]:
     return ProviderBinding(name=name, provider=provider)
 
@@ -249,3 +288,144 @@ async def test_cancellation_is_idempotent_and_discards_late_audio() -> None:
     ]
     assert omni.cancel_calls == [context.request_id]
     assert not any(isinstance(event, SpokenAudio) for event in events)
+
+
+@pytest.mark.asyncio
+async def test_retryable_tts_failure_replays_text_once_to_fallback() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    transcript = Transcript(text="hello", confidence=1.0)
+    segments = (
+        TextSegment(sequence=0, text="First."),
+        TextSegment(sequence=1, text="Second."),
+    )
+    error = ProviderError(
+        code="TTS_UNAVAILABLE",
+        message="primary unavailable",
+        retryable=True,
+    )
+    primary = FailingTextToSpeech(error)
+    fallback_chunks = (
+        AudioChunk(request_id=context.request_id, sequence=0, data=b"fallback-1"),
+        AudioChunk(request_id=context.request_id, sequence=1, data=b"fallback-2"),
+    )
+    fallback = StubTextToSpeech(fallback_chunks)
+    pipeline = VoicePipeline(
+        stt=binding("primary-stt", StubSpeechToText(transcript)),
+        omni=binding("openclaw", StubOmniSession(segments)),
+        tts=binding("primary-tts", primary),
+        tts_fallback=binding("fallback-tts", fallback),
+    )
+
+    events = [
+        event
+        async for event in pipeline.execute(
+            AudioInput(codec="opus", data=b"audio"), context
+        )
+    ]
+
+    assert primary.calls == 1
+    assert primary.received_text == list(segments)
+    assert fallback.received_text == list(segments)
+    assert [event.segment for event in events if isinstance(event, ResponseText)] == [
+        *segments
+    ]
+    assert [event.provider for event in events if isinstance(event, SpokenAudio)] == [
+        "fallback-tts",
+        "fallback-tts",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tts_failure_after_primary_audio_does_not_fallback() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    error = ProviderError(
+        code="TTS_UNAVAILABLE",
+        message="failed after speech began",
+        retryable=True,
+    )
+    first_chunk = AudioChunk(
+        request_id=context.request_id,
+        sequence=0,
+        data=b"already spoken",
+    )
+    primary = FailingTextToSpeech(error, chunks_before_failure=(first_chunk,))
+    fallback = StubTextToSpeech(
+        (AudioChunk(request_id=context.request_id, sequence=0, data=b"duplicate"),)
+    )
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding(
+            "openclaw",
+            StubOmniSession(
+                (
+                    TextSegment(sequence=0, text="First."),
+                    TextSegment(sequence=1, text="Second."),
+                )
+            ),
+        ),
+        tts=binding("primary-tts", primary),
+        tts_fallback=binding("fallback-tts", fallback),
+    )
+    stream = pipeline.execute(AudioInput(codec="opus", data=b"audio"), context)
+    transcript_event = await anext(stream)
+    text_event = await anext(stream)
+    spoken_event = await anext(stream)
+
+    with pytest.raises(ProviderError) as raised:
+        await anext(stream)
+
+    assert raised.value is error
+    assert fallback.received_text == []
+    assert isinstance(transcript_event, TranscriptReady)
+    assert isinstance(text_event, ResponseText)
+    assert spoken_event == SpokenAudio(
+        context=context,
+        chunk=first_chunk,
+        provider="primary-tts",
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancellation_suppresses_pending_tts_fallback() -> None:
+    context = RequestContext(conversation_id="conversation-1", request_id="request-1")
+    primary = BlockingFailingTextToSpeech(
+        ProviderError(
+            code="TTS_UNAVAILABLE",
+            message="primary unavailable",
+            retryable=True,
+        )
+    )
+    fallback = StubTextToSpeech(
+        (AudioChunk(request_id=context.request_id, sequence=0, data=b"not used"),)
+    )
+    omni = StubOmniSession((TextSegment(sequence=0, text="Hello."),))
+    pipeline = VoicePipeline(
+        stt=binding(
+            "primary-stt",
+            StubSpeechToText(Transcript(text="hello", confidence=1.0)),
+        ),
+        omni=binding("openclaw", omni),
+        tts=binding("primary-tts", primary),
+        tts_fallback=binding("fallback-tts", fallback),
+    )
+
+    async def collect_events() -> list[PipelineEvent]:
+        return [
+            event
+            async for event in pipeline.execute(
+                AudioInput(codec="opus", data=b"audio"), context
+            )
+        ]
+
+    execution = asyncio.create_task(collect_events())
+    await asyncio.wait_for(primary.entered.wait(), timeout=1.0)
+    await pipeline.cancel(context.request_id)
+    primary.release.set()
+    events = await asyncio.wait_for(execution, timeout=1.0)
+
+    assert events[-1] == Cancelled(context=context)
+    assert fallback.received_text == []
+    assert omni.cancel_calls == [context.request_id]

@@ -1,7 +1,12 @@
 """Provider-neutral streaming voice pipeline."""
 
-from collections.abc import AsyncIterator
+from __future__ import annotations
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Self
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 from omnivox_protocol import (
     AudioChunk,
@@ -38,6 +43,60 @@ class _RequestState:
     cancelled: bool = False
 
 
+@dataclass(slots=True)
+class _SynthesisState:
+    emitted_segments: int = 0
+    next_audio_sequence: int = 0
+    cancelled_emitted: bool = False
+
+
+@dataclass(slots=True)
+class _SynthesisRun:
+    context: RequestContext
+    request_state: _RequestState
+    progress: _SynthesisState
+    observed_segments: list[TextSegment]
+
+
+class _CachingTextSource:
+    """Cache streamed OpenClaw text so one fallback can replay it."""
+
+    def __init__(self, source: AsyncIterator[TextSegment]) -> None:
+        self._source = source
+        self.segments: list[TextSegment] = []
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> TextSegment:
+        segment = await anext(self._source)
+        self.segments.append(segment)
+        return segment
+
+    def replay(self) -> _ReplayTextSource:
+        """Replay cached segments, then continue the original source."""
+        return _ReplayTextSource(self)
+
+
+class _ReplayTextSource:
+    """One replay cursor over a caching text source."""
+
+    def __init__(self, source: _CachingTextSource) -> None:
+        self._source = source
+        self._index = 0
+
+    def __aiter__(self) -> Self:
+        return self
+
+    async def __anext__(self) -> TextSegment:
+        if self._index < len(self._source.segments):
+            segment = self._source.segments[self._index]
+        else:
+            segment = await anext(self._source)
+        self._index += 1
+        return segment
+
+
 class VoicePipeline:
     """Coordinate one utterance without owning identity or durable state."""
 
@@ -48,11 +107,13 @@ class VoicePipeline:
         omni: ProviderBinding[OmniSession],
         tts: ProviderBinding[TextToSpeech],
         stt_fallback: ProviderBinding[SpeechToText] | None = None,
+        tts_fallback: ProviderBinding[TextToSpeech] | None = None,
     ) -> None:
         self._stt = stt
         self._stt_fallback = stt_fallback
         self._omni = omni
         self._tts = tts
+        self._tts_fallback = tts_fallback
         self._active_requests: dict[str, _RequestState] = {}
 
     async def cancel(self, request_id: str) -> None:
@@ -89,48 +150,84 @@ class VoicePipeline:
             return
         yield TranscriptReady(context=context, transcript=transcript, provider=stt_name)
 
-        observed_segments: list[TextSegment] = []
-        emitted_segment_count = 0
-
-        async def response_text() -> AsyncIterator[TextSegment]:
-            async for segment in self._omni.provider.respond(transcript.text, context):
-                if state.cancelled:
-                    return
-                observed_segments.append(segment)
-                yield segment
-
-        expected_audio_sequence = 0
-        async for chunk in self._tts.provider.synthesize(response_text(), context):
+        text_source = _CachingTextSource(
+            self._omni.provider.respond(transcript.text, context)
+        )
+        synthesis = _SynthesisState()
+        synthesis_run = _SynthesisRun(
+            context=context,
+            request_state=state,
+            progress=synthesis,
+            observed_segments=text_source.segments,
+        )
+        try:
+            async for event in self._synthesize(
+                provider=self._tts,
+                text=text_source,
+                run=synthesis_run,
+            ):
+                yield event
+        except ProviderError as error:
             if state.cancelled:
                 yield Cancelled(context=context)
                 return
-            while emitted_segment_count < len(observed_segments):
-                segment = observed_segments[emitted_segment_count]
-                yield ResponseText(
-                    context=context,
-                    segment=segment,
-                    provider=self._omni.name,
-                )
-                emitted_segment_count += 1
-
-            self._validate_audio_chunk(chunk, context, expected_audio_sequence)
-            yield SpokenAudio(context=context, chunk=chunk, provider=self._tts.name)
-            expected_audio_sequence += 1
+            if (
+                not error.retryable
+                or self._tts_fallback is None
+                or synthesis.next_audio_sequence > 0
+            ):
+                raise
+            async for event in self._synthesize(
+                provider=self._tts_fallback,
+                text=text_source.replay(),
+                run=synthesis_run,
+            ):
+                yield event
 
         if state.cancelled:
-            yield Cancelled(context=context)
+            if not synthesis.cancelled_emitted:
+                yield Cancelled(context=context)
             return
 
-        while emitted_segment_count < len(observed_segments):
-            segment = observed_segments[emitted_segment_count]
+        while synthesis.emitted_segments < len(text_source.segments):
+            segment = text_source.segments[synthesis.emitted_segments]
             yield ResponseText(
                 context=context,
                 segment=segment,
                 provider=self._omni.name,
             )
-            emitted_segment_count += 1
+            synthesis.emitted_segments += 1
 
         yield Completed(context=context)
+
+    async def _synthesize(
+        self,
+        *,
+        provider: ProviderBinding[TextToSpeech],
+        text: AsyncIterator[TextSegment],
+        run: _SynthesisRun,
+    ) -> AsyncIterator[PipelineEvent]:
+        async for chunk in provider.provider.synthesize(text, run.context):
+            if run.request_state.cancelled:
+                run.progress.cancelled_emitted = True
+                yield Cancelled(context=run.context)
+                return
+            while run.progress.emitted_segments < len(run.observed_segments):
+                segment = run.observed_segments[run.progress.emitted_segments]
+                yield ResponseText(
+                    context=run.context,
+                    segment=segment,
+                    provider=self._omni.name,
+                )
+                run.progress.emitted_segments += 1
+
+            self._validate_audio_chunk(
+                chunk,
+                run.context,
+                run.progress.next_audio_sequence,
+            )
+            yield SpokenAudio(context=run.context, chunk=chunk, provider=provider.name)
+            run.progress.next_audio_sequence += 1
 
     async def _transcribe(
         self, audio: AudioInput, context: RequestContext
