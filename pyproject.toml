@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Development workspace for Omni Vox 2"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "omnivox-evaluation",
     "omnivox-gateway",
     "omnivox-protocol",
 ]
@@ -22,6 +23,7 @@ dev = [
 package = false
 
 [tool.uv.sources]
+omnivox-evaluation = { workspace = true }
 omnivox-gateway = { workspace = true }
 omnivox-protocol = { workspace = true }
 

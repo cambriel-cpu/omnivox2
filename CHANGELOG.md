@@ -16,6 +16,8 @@ All notable changes to Omni Vox 2 will be documented here.
   gateway foundation.
 - Idempotent request cancellation with upstream propagation and late-audio
   rejection.
+- Deterministic, privacy-safe evaluation reports for pipeline latency, provider
+  selection, and terminal outcomes.
 
 ### Changed
 

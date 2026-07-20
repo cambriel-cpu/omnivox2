@@ -5,6 +5,7 @@ requires-python = "==3.12.*"
 [manifest]
 members = [
     "omnivox-development",
+    "omnivox-evaluation",
     "omnivox-gateway",
     "omnivox-protocol",
 ]
@@ -250,6 +251,7 @@ name = "omnivox-development"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "omnivox-evaluation" },
     { name = "omnivox-gateway" },
     { name = "omnivox-protocol" },
 ]
@@ -266,6 +268,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "omnivox-evaluation", editable = "packages/evaluation" },
     { name = "omnivox-gateway", editable = "packages/gateway" },
     { name = "omnivox-protocol", editable = "packages/protocol" },
 ]
@@ -278,6 +281,21 @@ dev = [
     { name = "pytest", specifier = ">=9.0.3,<10" },
     { name = "pytest-asyncio", specifier = ">=1.1,<2" },
     { name = "ruff", specifier = ">=0.12,<1" },
+]
+
+[[package]]
+name = "omnivox-evaluation"
+version = "0.1.0"
+source = { editable = "packages/evaluation" }
+dependencies = [
+    { name = "omnivox-gateway" },
+    { name = "omnivox-protocol" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "omnivox-gateway", editable = "packages/gateway" },
+    { name = "omnivox-protocol", editable = "packages/protocol" },
 ]
 
 [[package]]
