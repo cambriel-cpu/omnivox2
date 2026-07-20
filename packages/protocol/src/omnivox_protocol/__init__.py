@@ -16,6 +16,13 @@ from omnivox_protocol.control import (
     encode_hello,
 )
 from omnivox_protocol.errors import ProtocolViolation
+from omnivox_protocol.heartbeat import (
+    Heartbeat,
+    Ping,
+    Pong,
+    decode_heartbeat,
+    encode_heartbeat,
+)
 from omnivox_protocol.interaction import (
     CancelReason,
     CancelRequest,
@@ -46,6 +53,12 @@ from omnivox_protocol.welcome import (
     decode_welcome,
     encode_welcome,
 )
+from omnivox_protocol.wire_error import (
+    ErrorCode,
+    ErrorMessage,
+    decode_error_message,
+    encode_error_message,
+)
 
 __all__ = [
     "AUDIO_HEADER_BYTES",
@@ -61,8 +74,13 @@ __all__ = [
     "Cancelled",
     "ClientMessage",
     "Completed",
+    "ErrorCode",
+    "ErrorMessage",
+    "Heartbeat",
     "Hello",
+    "Ping",
     "PipelineEvent",
+    "Pong",
     "ProtocolLimits",
     "ProtocolViolation",
     "RequestContext",
@@ -78,10 +96,14 @@ __all__ = [
     "WireRequest",
     "decode_audio_frame",
     "decode_client_message",
+    "decode_error_message",
+    "decode_heartbeat",
     "decode_hello",
     "decode_welcome",
     "encode_audio_frame",
     "encode_client_message",
+    "encode_error_message",
+    "encode_heartbeat",
     "encode_hello",
     "encode_welcome",
 ]

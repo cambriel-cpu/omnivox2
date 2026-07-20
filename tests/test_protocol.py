@@ -11,7 +11,12 @@ from omnivox_protocol import (
     CancelReason,
     CancelRequest,
     ClientMessage,
+    ErrorCode,
+    ErrorMessage,
+    Heartbeat,
     Hello,
+    Ping,
+    Pong,
     ProtocolLimits,
     ProtocolViolation,
     UtteranceEnd,
@@ -21,10 +26,14 @@ from omnivox_protocol import (
     WireRequest,
     decode_audio_frame,
     decode_client_message,
+    decode_error_message,
+    decode_heartbeat,
     decode_hello,
     decode_welcome,
     encode_audio_frame,
     encode_client_message,
+    encode_error_message,
+    encode_heartbeat,
     encode_hello,
     encode_welcome,
 )
@@ -32,6 +41,7 @@ from omnivox_protocol import (
 FIXTURES = Path(__file__).parent / "fixtures" / "protocol"
 REQUEST_ID = UUID("00000000-0000-4000-8000-000000000003")
 CONVERSATION_ID = UUID("00000000-0000-4000-8000-000000000002")
+TRACE_ID = UUID("00000000-0000-4000-8000-000000000004")
 
 
 def test_hello_encoding_matches_canonical_golden_fixture() -> None:
@@ -251,5 +261,97 @@ def test_client_control_matches_golden_fixture(
 def test_client_control_fails_closed(frame: bytes) -> None:
     with pytest.raises(ProtocolViolation) as raised:
         decode_client_message(frame)
+
+    assert raised.value.code == "INVALID_MESSAGE"
+
+
+@pytest.mark.parametrize(
+    ("heartbeat", "fixture_name"),
+    [
+        (Ping(nonce="heartbeat-0001"), "ping.json"),
+        (Pong(nonce="heartbeat-0001"), "pong.json"),
+    ],
+)
+def test_heartbeat_matches_golden_fixture(
+    heartbeat: Heartbeat, fixture_name: str
+) -> None:
+    expected = (FIXTURES / fixture_name).read_bytes().rstrip(b"\n")
+
+    assert encode_heartbeat(heartbeat) == expected
+    assert decode_heartbeat(expected) == heartbeat
+
+
+@pytest.mark.parametrize("nonce", ["", "x" * 65, "line\nbreak", "not-ascii-é"])
+def test_heartbeat_rejects_invalid_nonce(nonce: str) -> None:
+    with pytest.raises(ProtocolViolation) as raised:
+        encode_heartbeat(Ping(nonce=nonce))
+
+    assert raised.value.code == "INVALID_MESSAGE"
+
+
+def test_heartbeat_fails_closed_on_unknown_fields() -> None:
+    frame = (
+        b'{"nonce":"heartbeat-0001","protocol_version":2,'
+        b'"type":"ping","unexpected":true}'
+    )
+
+    with pytest.raises(ProtocolViolation) as raised:
+        decode_heartbeat(frame)
+
+    assert raised.value.code == "INVALID_MESSAGE"
+
+
+def test_error_message_matches_golden_fixture() -> None:
+    message = ErrorMessage(
+        request=WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=4),
+        code=ErrorCode.STT_UNAVAILABLE,
+        message="Speech recognition is temporarily unavailable.",
+        retryable=True,
+        trace_id=TRACE_ID,
+    )
+    expected = (FIXTURES / "error.json").read_bytes().rstrip(b"\n")
+
+    assert encode_error_message(message) == expected
+    assert decode_error_message(expected) == message
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        ErrorMessage(
+            request=WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=4),
+            code=ErrorCode.STT_UNAVAILABLE,
+            message="",
+            retryable=True,
+            trace_id=TRACE_ID,
+        ),
+        ErrorMessage(
+            request=WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=4),
+            code=ErrorCode.STT_UNAVAILABLE,
+            message="unsafe\nmessage",
+            retryable=True,
+            trace_id=TRACE_ID,
+        ),
+        ErrorMessage(
+            request=WireRequest(CONVERSATION_ID, REQUEST_ID, sequence=4),
+            code=ErrorCode.STT_UNAVAILABLE,
+            message="x" * 257,
+            retryable=True,
+            trace_id=TRACE_ID,
+        ),
+    ],
+)
+def test_error_message_rejects_unsafe_message(message: ErrorMessage) -> None:
+    with pytest.raises(ProtocolViolation) as raised:
+        encode_error_message(message)
+
+    assert raised.value.code == "INVALID_MESSAGE"
+
+
+def test_error_message_requires_strict_boolean() -> None:
+    frame = (FIXTURES / "error.json").read_bytes().replace(b"true", b"1")
+
+    with pytest.raises(ProtocolViolation) as raised:
+        decode_error_message(frame)
 
     assert raised.value.code == "INVALID_MESSAGE"
