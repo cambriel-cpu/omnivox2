@@ -50,8 +50,9 @@ annotations:
 The `accuracy` and `recovery` objects are independently optional. Accuracy
 references are private inputs, not report fields. A reference contains 1–16,000
 Unicode characters and must produce at least one normalized word. It contains at
-most 64 unique proper-noun annotations, each 1–128 characters and present in the
-normalized reference. Recovery scenario values are `packet_loss`,
+most 2,048 normalized words and at most 64 unique proper-noun annotations, each
+1–128 characters and present in the normalized reference. Recovery scenario values
+are `packet_loss`,
 `provider_timeout`, `gateway_restart`, and `interruption`. Unknown annotation
 members fail closed. Version 1 cases retain their original exact field set;
 version 2 permits only the two documented optional objects in addition to it.
@@ -119,6 +120,14 @@ Each optional measurement is `null` when it was not requested or observed. A
 declared recovery scenario without a scenario-driver observation is invalid; the
 harness does not infer recovery from ordinary pipeline completion.
 
+Evaluation fails closed when a pipeline event is correlated to another request,
+when a requested accuracy or recovery measurement is absent, when an unsolicited
+accuracy or recovery measurement is returned, or when the returned recovery
+scenario differs from the case. Latencies and recovery durations must be finite
+and non-negative. Accuracy counts must be non-negative, reference word count must
+be positive, and correct proper nouns cannot exceed the annotated total. Request
+cost must be a non-negative integer when present.
+
 ## 4. Suite report
 
 A suite report contains:
@@ -180,6 +189,10 @@ Accuracy uses the following deterministic rules:
    insertions count as errors. A proper-noun rate is `null` when no proper nouns
    were annotated.
 
+Accuracy hypotheses are bounded to 16,000 Unicode characters and 2,048 normalized
+words before edit-distance calculation. Over-limit provider output fails the
+evaluation measurement instead of being truncated or consuming unbounded work.
+
 Recovery observations are emitted by the deterministic fault-scenario driver and
 contain only a boolean plus elapsed milliseconds from fault injection until the
 documented post-fault ready condition. A successful observation requires a finite,
@@ -209,6 +222,10 @@ only contribute to a stage percentile when that stage was actually reached.
 Production benchmarks use a monotonic clock. Tests inject a manual clock and must
 not sleep. Reports preserve case input order regardless of future execution
 parallelism.
+
+Latency-only schema-version-1 cases retain compatibility with evaluators that
+implement the original `run(audio, context)` call. The suite supplies annotation
+arguments only for cases that request schema-version-2 measurements.
 
 Transport fault scenarios use an in-process deterministic link. A test configures
 the zero-based frame indexes to drop; transmission then returns no frame at those
