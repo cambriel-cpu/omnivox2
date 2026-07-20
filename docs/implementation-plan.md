@@ -70,6 +70,21 @@ non-retryable request failure.
 - Add deterministic packet-loss, timeout, reconnect, and interruption scenarios.
 - Provide explicit opt-in markers for real-provider tests.
 
+Hardware-independent completion status:
+
+- Complete: bounded private manifests, content-free outcome and latency reports,
+  deterministic packet loss, timeout, reconnect, and interruption coverage, and
+  the explicit real-provider opt-in gate.
+- Remaining: implement the versioned accuracy annotations, deterministic recovery
+  observations, and request-attributable cost measurements specified in
+  `evaluation-harness.md`; aggregate them without exposing private speech or
+  silently treating missing measurements as zero.
+- Deferred to provider spikes: populate cost observations from real provider usage
+  metadata and run the private annotated suite. This requires separate provider and
+  billing authorization.
+- Deferred to physical acceptance: wake-word, acoustic, playback, barge-in, boot,
+  and real network-recovery measurements on the servo-skull.
+
 ### Increment 4: Provider spikes
 
 - Benchmark the local cascaded baseline.
