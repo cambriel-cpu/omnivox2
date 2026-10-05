@@ -14,7 +14,10 @@ The project is currently documentation-first. No legacy implementation has been 
 
 ## Current status
 
-- Product and architecture specifications drafted.
+- Product and architecture specifications drafted (July 2026).
+- **October 2026 update:** Meta's Muse Gadgets SDK supersedes the gateway-based
+  design — see [`docs/updates/2026-10-05-muse-gadgets-native-architecture.md`](docs/updates/2026-10-05-muse-gadgets-native-architecture.md).
+  This is the current architectural direction.
 - Voice-model landscape researched.
 - Implementation intentionally not started.
 - Legacy code remains in the original repositories and deployments for selective salvage.
